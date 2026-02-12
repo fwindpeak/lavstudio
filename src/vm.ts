@@ -38,7 +38,7 @@ export class LavaXVM {
 
   public vfs: VirtualFileSystem;
   public graphics: GraphicsEngine;
-  private syscall: SyscallHandler;
+  public syscall: SyscallHandler;
 
   private ops: OpHandler[] = new Array(256).fill(() => {
     throw new Error(`Unknown opcode 0x${this.fd[this.pc - 1].toString(16)} at PC: ${this.pc - 1}`);

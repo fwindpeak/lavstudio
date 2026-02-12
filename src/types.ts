@@ -260,6 +260,9 @@ export enum SystemOp {
   write_uart = 0xDD,
   read_uart = 0xDE,
   RefreshIcon = 0xDF,
+  SetFgColor = 0xE0,
+  SetBgColor = 0xE1,
+  SetPalette = 0xE2,
 
   // Extended Dispatcher
   System = 0xD3, // Namespace overlap with readdir (check context)

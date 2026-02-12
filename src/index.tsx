@@ -56,6 +56,23 @@ const EXAMPLES = [
     printf("Key: %d\\n", key);
   }
 }`
+  },
+  {
+    name: 'draw_color.c',
+    content: `char palette[] = {255,0,0,0,0,0,255,0};
+
+void main()
+{
+ SetGraphMode(8);
+ SetFgColor(205);
+ TextOut(60, 30, "LavaX", 0x81);
+ SetFgColor(206);
+ TextOut(40, 50, "请按任意键", 0x81);
+ Refresh();
+ getchar();
+ SetPalette(205, 2, palette);
+ getchar();
+}`
   }
 ];
 

@@ -49,7 +49,7 @@ export class LavaXCompiler {
     'getc', 'putc', 'MakeDir', 'DeleteFile', 'Getms', 'CheckKey', 'Crc16',
     'ChDir', 'FileList', 'GetWord', 'Sin', 'Cos',
     'FindWord', 'PlayInit', 'PlayFile',
-    'opendir', 'readdir', 'closedir', 'read_uart'
+    'opendir', 'readdir', 'closedir', 'read_uart', 'SetFgColor', 'SetBgColor', 'SetPalette'
   ]);
 
 
@@ -72,7 +72,8 @@ export class LavaXCompiler {
     PlayInit: 1, PlayFile: 1, PlayStops: 0, SetVolume: 1, PlaySleep: 0,
     opendir: 1, readdir: 1, rewinddir: 1, closedir: 1, Refresh2: 0,
     open_key: 1, close_key: 0, PlayWordVoice: 1, sysexecset: 1, open_uart: 2,
-    close_uart: 0, write_uart: 2, read_uart: 2, RefreshIcon: 0
+    close_uart: 0, write_uart: 2, read_uart: 2, RefreshIcon: 0,
+    SetFgColor: 1, SetBgColor: 1, SetPalette: 3
   };
 
   private evalConstant(expr: string): number {

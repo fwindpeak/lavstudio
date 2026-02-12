@@ -1,5 +1,5 @@
 import iconv from 'iconv-lite';
-import { SystemOp, MathOp, MathFrameworkOp, SystemCoreOp, GBUF_OFFSET, TEXT_OFFSET, MEMORY_SIZE, VRAM_OFFSET } from '../types';
+import { SystemOp, MathOp, MathFrameworkOp, SystemCoreOp, GBUF_OFFSET, TEXT_OFFSET, MEMORY_SIZE, VRAM_OFFSET, GBUF_OFFSET_LVM } from '../types';
 import { GraphicsEngine } from './GraphicsEngine';
 import { VirtualFileSystem } from './VirtualFileSystem';
 
@@ -142,16 +142,36 @@ export class SyscallHandler {
             case SystemOp.WriteBlock: {
                 const addr = vm.resolveAddress(vm.pop());
                 const mode = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
-                const bytesPerRow = (w + 7) >> 3;
                 const copyMode = (mode & 0x07) === 1;
 
-                for (let r = 0; r < h; r++) {
-                    const rowOffset = addr + r * bytesPerRow;
-                    for (let c = 0; c < w; c++) {
-                        const bit = (vm.memory[rowOffset + (c >> 3)] >> (7 - (c & 7))) & 1;
-                        // Rule B: bit 6=1 is VRAM. Flip it for Engine.
-                        if (bit) vm.graphics.setPixel(x + c, y + r, 1, mode ^ 0x40);
-                        else if (copyMode) vm.graphics.setPixel(x + c, y + r, 0, mode ^ 0x40);
+                if (vm.graphics.graphMode === 8) {
+                    for (let r = 0; r < h; r++) {
+                        for (let c = 0; c < w; c++) {
+                            const color = vm.memory[addr + r * w + c];
+                            // Rule B: bit 6=1 is VRAM. Flip it for Engine.
+                            vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
+                        }
+                    }
+                } else if (vm.graphics.graphMode === 4) {
+                    const bytesPerRow = (w + 1) >> 1;
+                    for (let r = 0; r < h; r++) {
+                        const rowOffset = addr + r * bytesPerRow;
+                        for (let c = 0; c < w; c++) {
+                            const byte = vm.memory[rowOffset + (c >> 1)];
+                            const color = (c % 2 === 0) ? (byte >> 4) : (byte & 0x0F);
+                            vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
+                        }
+                    }
+                } else {
+                    const bytesPerRow = (w + 7) >> 3;
+                    for (let r = 0; r < h; r++) {
+                        const rowOffset = addr + r * bytesPerRow;
+                        for (let c = 0; c < w; c++) {
+                            const bit = (vm.memory[rowOffset + (c >> 3)] >> (7 - (c & 7))) & 1;
+                            // Rule B: bit 6=1 is VRAM. Flip it for Engine.
+                            if (bit) vm.graphics.setPixel(x + c, y + r, 1, mode ^ 0x40);
+                            else if (copyMode) vm.graphics.setPixel(x + c, y + r, 0, mode ^ 0x40);
+                        }
                     }
                 }
                 if (mode & 0x40) vm.graphics.flushScreen();
@@ -181,7 +201,9 @@ export class SyscallHandler {
 
             case SystemOp.Refresh:
             case SystemOp.Refresh2: {
-                vm.memory.copyWithin(VRAM_OFFSET, GBUF_OFFSET, GBUF_OFFSET + 1600);
+                const gbuf = (vm.graphics.graphMode === 1) ? GBUF_OFFSET : GBUF_OFFSET_LVM;
+                const size = (vm.graphics.graphMode === 8) ? 12800 : (vm.graphics.graphMode === 4 ? 6400 : 1600);
+                vm.memory.copyWithin(VRAM_OFFSET, gbuf, gbuf + size);
                 vm.graphics.flushScreen();
                 return null;
             }
@@ -261,17 +283,39 @@ export class SyscallHandler {
             case SystemOp.GetBlock: {
                 const addr = vm.resolveAddress(vm.pop());
                 const mode = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
-                const bytesPerRow = (w + 7) >> 3;
 
-                for (let r = 0; r < h; r++) {
-                    const rowOffset = addr + r * bytesPerRow;
-                    for (let c = 0; c < w; c++) {
-                        // Rule A: bit 6=1 is GBUF. Matches Engine.
-                        const pixel = vm.graphics.getPixel(x + c, y + r, mode);
-                        if (pixel) {
-                            vm.memory[rowOffset + (c >> 3)] |= (1 << (7 - (c & 7)));
-                        } else {
-                            vm.memory[rowOffset + (c >> 3)] &= ~(1 << (7 - (c & 7)));
+                if (vm.graphics.graphMode === 8) {
+                    for (let r = 0; r < h; r++) {
+                        for (let c = 0; c < w; c++) {
+                            const pixel = vm.graphics.getPixel(x + c, y + r, mode);
+                            vm.memory[addr + r * w + c] = pixel;
+                        }
+                    }
+                } else if (vm.graphics.graphMode === 4) {
+                    const bytesPerRow = (w + 1) >> 1;
+                    for (let r = 0; r < h; r++) {
+                        const rowOffset = addr + r * bytesPerRow;
+                        for (let c = 0; c < w; c++) {
+                            const pixel = vm.graphics.getPixel(x + c, y + r, mode) & 0x0F;
+                            if (c % 2 === 0) {
+                                vm.memory[rowOffset + (c >> 1)] = (vm.memory[rowOffset + (c >> 1)] & 0x0F) | (pixel << 4);
+                            } else {
+                                vm.memory[rowOffset + (c >> 1)] = (vm.memory[rowOffset + (c >> 1)] & 0xF0) | pixel;
+                            }
+                        }
+                    }
+                } else {
+                    const bytesPerRow = (w + 7) >> 3;
+                    for (let r = 0; r < h; r++) {
+                        const rowOffset = addr + r * bytesPerRow;
+                        for (let c = 0; c < w; c++) {
+                            // Rule A: bit 6=1 is GBUF. Matches Engine.
+                            const pixel = vm.graphics.getPixel(x + c, y + r, mode);
+                            if (pixel) {
+                                vm.memory[rowOffset + (c >> 3)] |= (1 << (7 - (c & 7)));
+                            } else {
+                                vm.memory[rowOffset + (c >> 3)] &= ~(1 << (7 - (c & 7)));
+                            }
                         }
                     }
                 }
@@ -286,6 +330,45 @@ export class SyscallHandler {
                 return null;
             }
 
+            case SystemOp.SetGraphMode: {
+                const mode = vm.pop();
+                if (mode === 0) return vm.graphics.graphMode;
+                if (mode !== 1 && mode !== 4 && mode !== 8) return 0;
+
+                const oldMode = vm.graphics.graphMode;
+                vm.graphics.graphMode = mode;
+                // Clearing screen on mode change is common
+                vm.graphics.clearVRAM();
+                vm.graphics.clearGraphBuffer();
+                vm.graphics.flushScreen();
+                return oldMode;
+            }
+
+            case SystemOp.SetPalette: {
+                const palAddr = vm.resolveAddress(vm.pop());
+                const num = vm.pop();
+                const start = vm.pop();
+                for (let i = 0; i < num; i++) {
+                    if (start + i >= 256) break;
+                    vm.graphics.palette[(start + i) * 4] = vm.memory[palAddr + i * 4];
+                    vm.graphics.palette[(start + i) * 4 + 1] = vm.memory[palAddr + i * 4 + 1];
+                    vm.graphics.palette[(start + i) * 4 + 2] = vm.memory[palAddr + i * 4 + 2];
+                    vm.graphics.palette[(start + i) * 4 + 3] = 255;
+                }
+                return num;
+            }
+            case SystemOp.SetFgColor: {
+                const color = vm.pop();
+                const old = vm.graphics.fgColor;
+                vm.graphics.fgColor = color;
+                return old;
+            }
+            case SystemOp.SetBgColor: {
+                const color = vm.pop();
+                const old = vm.graphics.bgColor;
+                vm.graphics.bgColor = color;
+                return old;
+            }
             case SystemOp.exit: vm.pop(); vm.running = false; return 0;
             case SystemOp.ClearScreen: vm.graphics.clearGraphBuffer(); return null;
             case SystemOp.abs: return Math.abs(vm.pop());
