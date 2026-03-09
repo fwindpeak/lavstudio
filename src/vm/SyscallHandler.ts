@@ -148,7 +148,7 @@ export class SyscallHandler {
                     for (let r = 0; r < h; r++) {
                         for (let c = 0; c < w; c++) {
                             const color = vm.memory[addr + r * w + c];
-                            // Rule B: bit 6=1 is VRAM. Flip it for Engine.
+                            // Rule B: bit 6=1 is VRAM. Flip it for Engine (1=GBUF).
                             vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
                         }
                     }
@@ -159,6 +159,7 @@ export class SyscallHandler {
                         for (let c = 0; c < w; c++) {
                             const byte = vm.memory[rowOffset + (c >> 1)];
                             const color = (c % 2 === 0) ? (byte >> 4) : (byte & 0x0F);
+                            // Rule B: bit 6=1 is VRAM.
                             vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
                         }
                     }
@@ -168,12 +169,13 @@ export class SyscallHandler {
                         const rowOffset = addr + r * bytesPerRow;
                         for (let c = 0; c < w; c++) {
                             const bit = (vm.memory[rowOffset + (c >> 3)] >> (7 - (c & 7))) & 1;
-                            // Rule B: bit 6=1 is VRAM. Flip it for Engine.
+                            // Rule B: bit 6=1 is VRAM.
                             if (bit) vm.graphics.setPixel(x + c, y + r, 1, mode ^ 0x40);
                             else if (copyMode) vm.graphics.setPixel(x + c, y + r, 0, mode ^ 0x40);
                         }
                     }
                 }
+                // Flush if drawing to VRAM (bit 6 set)
                 if (mode & 0x40) vm.graphics.flushScreen();
                 return null;
             }
@@ -192,10 +194,11 @@ export class SyscallHandler {
             case SystemOp.Block:
             case SystemOp.Rectangle: {
                 const mode = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
-                if (op === SystemOp.Block) vm.graphics.drawFillBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
-                else vm.graphics.drawBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                // Block/Rectangle always draw to GBUF. (0x40 is GBUF in Engine)
+                const engineMode = (mode & 0x07) | 0x40;
+                if (op === SystemOp.Block) vm.graphics.drawFillBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, engineMode);
+                else vm.graphics.drawBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, engineMode);
+                // Deferred display: Refresh() will show it.
                 return null;
             }
 
@@ -224,8 +227,9 @@ export class SyscallHandler {
 
             case SystemOp.Point: {
                 const mode = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
+                // Rule A: bit 6=1 is GBUF. Matches Engine (1=GBUF).
                 vm.graphics.setPixel(x, y, 1, mode);
+                // Flush if drawing to VRAM (bit 6 NOT set)
                 if (!(mode & 0x40)) vm.graphics.flushScreen();
                 return null;
             }
@@ -237,7 +241,7 @@ export class SyscallHandler {
 
             case SystemOp.Line: {
                 const mode = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
+                // Rule A: bit 6=1 is GBUF.
                 vm.graphics.drawLine(x0, y0, x1, y1, mode);
                 if (!(mode & 0x40)) vm.graphics.flushScreen();
                 return null;
@@ -245,7 +249,7 @@ export class SyscallHandler {
 
             case SystemOp.Box: {
                 const mode = vm.pop(), fill = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
+                // Rule A: bit 6=1 is GBUF.
                 if (fill) vm.graphics.drawFillBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
                 else vm.graphics.drawBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
                 if (!(mode & 0x40)) vm.graphics.flushScreen();
@@ -254,7 +258,7 @@ export class SyscallHandler {
 
             case SystemOp.Circle: {
                 const mode = vm.pop(), fill = vm.pop(), r = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
+                // Rule A: bit 6=1 is GBUF.
                 if (fill) vm.graphics.drawFillCircle(x, y, r, mode);
                 else vm.graphics.drawCircle(x, y, r, mode);
                 if (!(mode & 0x40)) vm.graphics.flushScreen();
@@ -263,7 +267,7 @@ export class SyscallHandler {
 
             case SystemOp.Ellipse: {
                 const mode = vm.pop(), fill = vm.pop(), ry = vm.pop(), rx = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine.
+                // Rule A: bit 6=1 is GBUF.
                 vm.graphics.drawEllipse(x, y, rx, ry, fill !== 0, mode);
                 if (!(mode & 0x40)) vm.graphics.flushScreen();
                 return null;

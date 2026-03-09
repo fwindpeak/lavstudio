@@ -449,8 +449,16 @@ export class GraphicsEngine {
             if (color === 0) color = this.bgColor;
             else if (color === 1) color = this.fgColor;
         }
-        for (let i = x; i < x + w; i++) { this.setPixel(i, y, color, mode); this.setPixel(i, y + h - 1, color, mode); }
-        for (let i = y; i < y + h; i++) { this.setPixel(x, i, color, mode); this.setPixel(x + w - 1, i, color, mode); }
+        // Top and bottom edges (excluding corners)
+        for (let i = x + 1; i < x + w - 1; i++) {
+            this.setPixel(i, y, color, mode);
+            this.setPixel(i, y + h - 1, color, mode);
+        }
+        // Left and right edges (including corners)
+        for (let i = y; i < y + h; i++) {
+            this.setPixel(x, i, color, mode);
+            this.setPixel(x + w - 1, i, color, mode);
+        }
     }
 
     public drawFillBox(x: number, y: number, w: number, h: number, mode: number = 1) {
