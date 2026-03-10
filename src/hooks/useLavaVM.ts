@@ -68,6 +68,10 @@ export function useLavaVM(onLog: (msg: string) => void) {
         vm.pushKey(code);
     }, [vm]);
 
+    const releaseKey = useCallback((code: number) => {
+        vm.releaseKey(code);
+    }, [vm]);
+
     const clearLogs = useCallback(() => {
         setLogs([]);
     }, []);
@@ -80,6 +84,7 @@ export function useLavaVM(onLog: (msg: string) => void) {
         run,
         stop,
         pushKey,
+        releaseKey,
         vm,
         compiler,
         assembler,

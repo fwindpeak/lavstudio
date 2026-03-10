@@ -20,7 +20,7 @@ export interface ILavaXVM {
     graphics: GraphicsEngine;
     stk: Int32Array;
     sp: number;
-    currentFontSize?: number;
+    currentKeyDown: number;
     delayUntil: number;
     wakeUp(): void;
 }
@@ -589,7 +589,28 @@ export class SyscallHandler {
             }
 
             case SystemOp.Getms: return Date.now() - vm.startTime;
-            case SystemOp.CheckKey: return vm.keyBuffer.length > 0 ? -1 : 0;
+            case SystemOp.CheckKey: {
+                vm.pop(); // Consume key argument, but not from keyBuffer
+                const keyToCheck = vm.stk[vm.sp]; // the popped value
+                let hold = 0;
+                if (keyToCheck < 128) {
+                    hold = (vm.currentKeyDown === keyToCheck) ? keyToCheck : 0;
+                } else {
+                    hold = (vm.currentKeyDown !== 0) ? vm.currentKeyDown : 0;
+                }
+
+                // If checking key failed, yielding slightly allows JS to process UI events in tight loops
+                if (!hold && !vm.keyBuffer.length) {
+                    // Setting delayUntil = 0 with resolveKeySignal enforces a small yield to next tick
+                    if (!vm['resolveKeySignal']) {
+                        let resolver: () => void;
+                        const promise = new Promise<void>(resolve => { resolver = resolve; });
+                        vm['resolveKeySignal'] = resolver!;
+                        setTimeout(() => vm.wakeUp(), 0);
+                    }
+                }
+                return hold ? -1 : 0; // The LavaX spec for CheckKey(key<128) says it returns non-zero. For key>=128 it returns the key.
+            }
             case SystemOp.memmove: {
                 const count = vm.pop(), src = vm.resolveAddress(vm.pop()), dest = vm.resolveAddress(vm.pop());
                 vm.memory.copyWithin(dest, src, src + count);
@@ -627,6 +648,7 @@ export class SyscallHandler {
             case SystemOp.GetWord: {
                 // Returns key code if available, else undefined to block
                 if (vm.keyBuffer.length === 0) return undefined;
+                vm.pop(); // Consume mode argument
                 return vm.keyBuffer.shift();
             }
             case SystemOp.Sin: {

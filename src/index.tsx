@@ -95,7 +95,7 @@ export function App() {
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [showExamples, setShowExamples] = useState(false);
 
-  const { running, logs, screen, compile, run, stop, pushKey, vm, compiler, assembler, setLogs, clearLogs } = useLavaVM(() => { });
+  const { running, logs, screen, compile, run, stop, pushKey, releaseKey, vm, compiler, assembler, setLogs, clearLogs } = useLavaVM(() => { });
   const decompiler = useMemo(() => new LavaXDecompiler(), []);
 
   const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId) || tabs[0], [tabs, activeTabId]);
@@ -470,6 +470,7 @@ export function App() {
               <Device
                 screen={screen}
                 onKeyPress={pushKey}
+                onKeyRelease={releaseKey}
                 onStop={stop}
                 isRunning={running}
               />

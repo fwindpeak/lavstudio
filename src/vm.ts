@@ -35,6 +35,8 @@ export class LavaXVM {
   public debug = false;
   public startTime = Date.now();
   public keyBuffer: number[] = [];
+  public currentKeyDown: number = 0;
+  private internalYieldCount: number = 0;
 
   public vfs: VirtualFileSystem;
   public graphics: GraphicsEngine;
@@ -403,6 +405,8 @@ export class LavaXVM {
 
     // Clear all display/IO state for clean program isolation
     this.keyBuffer = [];
+    this.currentKeyDown = 0;
+    this.internalYieldCount = 0;
     this.startTime = Date.now();
     this.resolveKeySignal = null;
     this.graphics.fullReset();
@@ -434,6 +438,10 @@ export class LavaXVM {
             };
           });
           this.resolveKeySignal = null;
+        } else if (this.internalYieldCount > 10000) {
+          // Force occasional yield to event loop for pure computational loops without syscall yields
+          this.internalYieldCount = 0;
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
 
         const nextFrame = (typeof requestAnimationFrame !== 'undefined')
@@ -471,6 +479,7 @@ export class LavaXVM {
       this.onLog(`[DEBUG] PC=0x${pc.toString(16)} OP=${opName}(0x${opcode.toString(16)}) SP=${this.sp} BASE=0x${this.base.toString(16)}`);
     }
     const opcode = this.fd[this.pc++];
+    this.internalYieldCount++;
     this.ops[opcode]();
   }
 
@@ -567,7 +576,14 @@ export class LavaXVM {
   pushKey(code: number) {
     if (code) {
       this.keyBuffer.push(code);
+      this.currentKeyDown = code;
       this.wakeUp();
+    }
+  }
+
+  releaseKey(code: number) {
+    if (this.currentKeyDown === code || code >= 128) {
+      this.currentKeyDown = 0;
     }
   }
 }

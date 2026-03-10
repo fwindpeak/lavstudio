@@ -24,8 +24,8 @@ export const getKeyCode = (labelOrKey: string): number | null => {
     return code || null;
 };
 
-export const SoftKeyboard: React.FC<{ onKeyPress: (code: number) => void }> = ({ onKeyPress }) => (
-    <div className="grid gap-1 p-2 bg-neutral-900/90 rounded-2xl border border-white/5 backdrop-blur-xl shadow-inner">
+export const SoftKeyboard: React.FC<{ onKeyPress: (code: number) => void; onKeyRelease?: (code: number) => void }> = ({ onKeyPress, onKeyRelease }) => (
+    <div className="grid gap-1 p-2 bg-neutral-900/90 rounded-2xl border border-white/5 backdrop-blur-xl shadow-inner touch-none select-none">
         {KEYBOARD_LAYOUT.map((row, rowIndex) => (
             <div key={rowIndex} className="flex gap-1 justify-center">
                 {row.map((key, keyIndex) => {
@@ -33,13 +33,27 @@ export const SoftKeyboard: React.FC<{ onKeyPress: (code: number) => void }> = ({
                     const displayKey = key.split('\n');
                     const isSpecial = ['ON/OFF', 'HELP', 'SHIFT', 'CAPS', 'ESC', '↵', '⇈', '⇊', 'F1', 'F2', 'F3', 'F4', 'SPACE'].includes(displayKey[0]);
 
-                    const handlePress = () => {
+                    const handlePointerDown = (e: React.PointerEvent) => {
+                        e.preventDefault();
                         const code = getKeyCode(displayKey[0]);
                         if (code !== null) onKeyPress(code);
                     };
 
+                    const handlePointerUpOrLeave = (e: React.PointerEvent) => {
+                        e.preventDefault();
+                        if (onKeyRelease) {
+                            const code = getKeyCode(displayKey[0]);
+                            if (code !== null) onKeyRelease(code);
+                        }
+                    };
+
                     return (
-                        <button key={keyIndex} onClick={handlePress}
+                        <button key={keyIndex}
+                            onPointerDown={handlePointerDown}
+                            onPointerUp={handlePointerUpOrLeave}
+                            onPointerLeave={handlePointerUpOrLeave}
+                            onPointerCancel={handlePointerUpOrLeave}
+                            onContextMenu={(e) => e.preventDefault()}
                             className={`w-8 h-8 flex items-center justify-center gap-0.5 ${isSpecial ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-750' : 'bg-neutral-700 text-white hover:bg-neutral-600'} active:scale-90 active:brightness-75 text-[9px] font-black rounded-lg shadow-lg transition-all border-b-[3px] border-black/40 relative`}
                         >
                             <span>{displayKey[0]}</span>

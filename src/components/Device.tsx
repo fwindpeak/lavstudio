@@ -5,6 +5,7 @@ import { SoftKeyboard, getKeyCode } from './SoftKeyboard';
 interface DeviceProps {
     screen: ImageData | null;
     onKeyPress: (code: number) => void;
+    onKeyRelease?: (code: number) => void;
     onStop: () => void;
     isRunning: boolean;
 }
@@ -25,7 +26,7 @@ const PHYSICAL_KEY_MAP: Record<string, string> = {
     'Control': 'SHIFT', // Use Ctrl as another modifier if needed
 };
 
-export const Device: React.FC<DeviceProps> = ({ screen, onKeyPress, onStop, isRunning }) => {
+export const Device: React.FC<DeviceProps> = ({ screen, onKeyPress, onKeyRelease, onStop, isRunning }) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -49,9 +50,27 @@ export const Device: React.FC<DeviceProps> = ({ screen, onKeyPress, onStop, isRu
             }
         };
 
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (!isRunning || !onKeyRelease) return;
+            if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+
+            let key = e.key;
+            if (PHYSICAL_KEY_MAP[key]) key = PHYSICAL_KEY_MAP[key];
+
+            const code = getKeyCode(key);
+            if (code !== null) {
+                e.preventDefault();
+                onKeyRelease(code);
+            }
+        };
+
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isRunning, onKeyPress]);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [isRunning, onKeyPress, onKeyRelease]);
 
     return (
         <div
@@ -93,7 +112,7 @@ export const Device: React.FC<DeviceProps> = ({ screen, onKeyPress, onStop, isRu
                 </div>
 
                 <div className="mt-10 flex justify-center">
-                    <SoftKeyboard onKeyPress={onKeyPress} />
+                    <SoftKeyboard onKeyPress={onKeyPress} onKeyRelease={onKeyRelease} />
                 </div>
             </div>
 
