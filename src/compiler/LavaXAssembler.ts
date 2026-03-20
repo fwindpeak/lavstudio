@@ -39,10 +39,12 @@ export class LavaXAssembler {
                 currentPos += 1;
                 if ([Op.PUSH_B, Op.MASK].includes(op)) currentPos += 1;
                 else if ([Op.PUSH_W, Op.LD_G_B, Op.LD_G_W, Op.LD_G_D,
+                Op.LD_G_O_B, Op.LD_G_O_W, Op.LD_G_O_D,
                 Op.LEA_G_B, Op.LEA_G_W, Op.LEA_G_D, Op.LD_L_B, Op.LD_L_W, Op.LD_L_D,
+                Op.LD_L_O_B, Op.LD_L_O_W, Op.LD_L_O_D,
                 Op.LEA_L_B, Op.LEA_L_W, Op.LEA_L_D, Op.LEA_OFT, Op.LEA_L_PH, Op.LEA_ABS,
                 Op.SPACE].includes(op)) currentPos += 2;
-                else if ([Op.JZ, Op.JMP, Op.CALL].includes(op)) currentPos += 3;
+                else if ([Op.JZ, Op.JNZ, Op.JMP, Op.CALL].includes(op)) currentPos += 3;
                 else if ([Op.PUSH_D].includes(op)) currentPos += 4;
                 else if (op === Op.FUNC) {
                     currentPos += 3; // u24: 1B params + 2B space
@@ -75,7 +77,9 @@ export class LavaXAssembler {
                 if ([Op.PUSH_B, Op.MASK].includes(op)) {
                     code.push(parseInt(arg) & 0xFF);
                 } else if ([Op.PUSH_W, Op.LD_G_B, Op.LD_G_W, Op.LD_G_D,
+                Op.LD_G_O_B, Op.LD_G_O_W, Op.LD_G_O_D,
                 Op.LEA_G_B, Op.LEA_G_W, Op.LEA_G_D, Op.LD_L_B, Op.LD_L_W, Op.LD_L_D,
+                Op.LD_L_O_B, Op.LD_L_O_W, Op.LD_L_O_D,
                 Op.LEA_L_B, Op.LEA_L_W, Op.LEA_L_D, Op.LEA_OFT, Op.LEA_L_PH, Op.LEA_ABS,
                 Op.SPACE].includes(op)) {
                     this.pushInt16(code, parseInt(arg));
@@ -94,7 +98,7 @@ export class LavaXAssembler {
                     // FUNC format: #NUM1(2B) = local_vars + 5, #NUM2(1B) = param_count
                     this.pushInt16(code, parseInt(parts[1])); // space (local_vars + 5)
                     code.push(parseInt(parts[2]) & 0xFF); // params
-                } else if ([Op.JMP, Op.JZ, Op.CALL].includes(op)) {
+                } else if ([Op.JMP, Op.JZ, Op.JNZ, Op.CALL].includes(op)) {
                     fixups.push({ pos: code.length, label: arg, size: 3 });
                     this.pushInt24(code, 0);
                 } else if (op === Op.PUSH_STR) {

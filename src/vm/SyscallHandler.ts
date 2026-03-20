@@ -97,7 +97,8 @@ export class SyscallHandler {
                 const formatBytes = vm.getStringBytes(fmtHandle);
 
                 if (formatBytes) {
-                    const str = this.formatVariadicString(formatBytes, 0, argsIdx);
+                    // count - 2 = number of format args (excluding buf and fmt)
+                    const str = this.formatVariadicString(formatBytes, count - 2, argsIdx);
                     const bytes = iconv.encode(str, 'gbk');
                     vm.memory.set(bytes, destAddr);
                     vm.memory[destAddr + bytes.length] = 0;
@@ -125,9 +126,8 @@ export class SyscallHandler {
             case SystemOp.SetScreen: {
                 const mode = vm.pop();
                 vm.graphics.currentFontSize = (mode === 0) ? 16 : 12;
-                // Clear all display areas: GBUF, VRAM, text buffer
-                // vm.graphics.clearGraphBuffer();
-                // vm.graphics.clearVRAM();
+                // Clear VRAM and _TEXT buffer on SetScreen
+                vm.graphics.clearVRAM();
                 vm.graphics.clearTextBuffer();
                 vm.graphics.flushScreen();
                 return null;
@@ -141,69 +141,33 @@ export class SyscallHandler {
 
             case SystemOp.WriteBlock: {
                 const addr = vm.resolveAddress(vm.pop());
-                const mode = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
-                const copyMode = (mode & 0x07) === 1;
-
-                if (vm.graphics.graphMode === 8) {
-                    for (let r = 0; r < h; r++) {
-                        for (let c = 0; c < w; c++) {
-                            const color = vm.memory[addr + r * w + c];
-                            // Rule B: bit 6=1 is VRAM. Flip it for Engine (1=GBUF).
-                            vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
-                        }
-                    }
-                } else if (vm.graphics.graphMode === 4) {
-                    const bytesPerRow = (w + 1) >> 1;
-                    for (let r = 0; r < h; r++) {
-                        const rowOffset = addr + r * bytesPerRow;
-                        for (let c = 0; c < w; c++) {
-                            const byte = vm.memory[rowOffset + (c >> 1)];
-                            const color = (c % 2 === 0) ? (byte >> 4) : (byte & 0x0F);
-                            // Rule B: bit 6=1 is VRAM.
-                            vm.graphics.setPixel(x + c, y + r, color, mode ^ 0x40);
-                        }
-                    }
-                } else {
-                    const bytesPerRow = (w + 7) >> 3;
-                    for (let r = 0; r < h; r++) {
-                        const rowOffset = addr + r * bytesPerRow;
-                        for (let c = 0; c < w; c++) {
-                            const bit = (vm.memory[rowOffset + (c >> 3)] >> (7 - (c & 7))) & 1;
-                            // Rule B: bit 6=1 is VRAM.
-                            if (bit) vm.graphics.setPixel(x + c, y + r, 1, mode ^ 0x40);
-                            else if (copyMode) vm.graphics.setPixel(x + c, y + r, 0, mode ^ 0x40);
-                        }
-                    }
-                }
-                // Flush if drawing to VRAM (bit 6 set)
-                if (mode & 0x40) vm.graphics.flushScreen();
+                const type = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.WriteBlock(x, y, w, h, type, addr);
                 return null;
             }
 
             case SystemOp.TextOut: {
-                const mode = vm.pop(), strAddr = vm.pop(), y = vm.pop(), x = vm.pop();
+                const type = vm.pop(), strAddr = vm.pop(), y = vm.pop(), x = vm.pop();
                 const bytes = vm.getStringBytes(strAddr);
                 if (bytes) {
-                    // Rule B: bit 6=1 is VRAM. Flip it for Engine.
-                    vm.graphics.drawText(x, y, bytes, (mode & 0x80) ? 16 : 12, mode ^ 0x40);
-                    if (mode & 0x40) vm.graphics.flushScreen();
+                    vm.graphics.TextOut(x, y, bytes, type);
                 }
                 return null;
             }
 
-            case SystemOp.Block:
-            case SystemOp.Rectangle: {
-                const mode = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Block/Rectangle always draw to GBUF. (0x40 is GBUF in Engine)
-                const engineMode = (mode & 0x07) | 0x40;
-                if (op === SystemOp.Block) vm.graphics.drawFillBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, engineMode);
-                else vm.graphics.drawBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, engineMode);
-                // Deferred display: Refresh() will show it.
+            case SystemOp.Block: {
+                const type = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
+                vm.graphics.Block(x0, y0, x1, y1, type);
                 return null;
             }
 
-            case SystemOp.Refresh:
-            case SystemOp.Refresh2: {
+            case SystemOp.Rectangle: {
+                const type = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
+                vm.graphics.Rectangle(x0, y0, x1, y1, type);
+                return null;
+            }
+
+            case SystemOp.Refresh: {
                 const gbuf = (vm.graphics.graphMode === 1) ? GBUF_OFFSET : GBUF_OFFSET_LVM;
                 const size = (vm.graphics.graphMode === 8) ? 12800 : (vm.graphics.graphMode === 4 ? 6400 : 1600);
                 vm.memory.copyWithin(VRAM_OFFSET, gbuf, gbuf + size);
@@ -226,50 +190,37 @@ export class SyscallHandler {
             }
 
             case SystemOp.Point: {
-                const mode = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF. Matches Engine (1=GBUF).
-                vm.graphics.setPixel(x, y, 1, mode);
-                // Flush if drawing to VRAM (bit 6 NOT set)
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                const type = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.Point(x, y, type);
                 return null;
             }
 
             case SystemOp.GetPoint: {
                 const y = vm.pop(), x = vm.pop();
-                return vm.graphics.getPixel(x, y);
+                return vm.graphics.getPixel(x, y, 0);
             }
 
             case SystemOp.Line: {
-                const mode = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Rule A: bit 6=1 is GBUF.
-                vm.graphics.drawLine(x0, y0, x1, y1, mode);
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                const type = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
+                vm.graphics.Line(x0, y0, x1, y1, type);
                 return null;
             }
 
             case SystemOp.Box: {
-                const mode = vm.pop(), fill = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
-                // Rule A: bit 6=1 is GBUF.
-                if (fill) vm.graphics.drawFillBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
-                else vm.graphics.drawBox(x0, y0, x1 - x0 + 1, y1 - y0 + 1, mode);
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                const type = vm.pop(), fill = vm.pop(), y1 = vm.pop(), x1 = vm.pop(), y0 = vm.pop(), x0 = vm.pop();
+                vm.graphics.Box(x0, y0, x1, y1, fill, type);
                 return null;
             }
 
             case SystemOp.Circle: {
-                const mode = vm.pop(), fill = vm.pop(), r = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF.
-                if (fill) vm.graphics.drawFillCircle(x, y, r, mode);
-                else vm.graphics.drawCircle(x, y, r, mode);
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                const type = vm.pop(), fill = vm.pop(), r = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.Circle(x, y, r, fill, type);
                 return null;
             }
 
             case SystemOp.Ellipse: {
-                const mode = vm.pop(), fill = vm.pop(), ry = vm.pop(), rx = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule A: bit 6=1 is GBUF.
-                vm.graphics.drawEllipse(x, y, rx, ry, fill !== 0, mode);
-                if (!(mode & 0x40)) vm.graphics.flushScreen();
+                const type = vm.pop(), fill = vm.pop(), ry = vm.pop(), rx = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.Ellipse(x, y, rx, ry, fill, type);
                 return null;
             }
 
@@ -280,57 +231,20 @@ export class SyscallHandler {
 
             case SystemOp.XDraw: {
                 const mode = vm.pop();
-                vm.graphics.xDraw(mode);
+                vm.graphics.XDraw(mode);
                 return null;
             }
 
             case SystemOp.GetBlock: {
                 const addr = vm.resolveAddress(vm.pop());
-                const mode = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
-
-                if (vm.graphics.graphMode === 8) {
-                    for (let r = 0; r < h; r++) {
-                        for (let c = 0; c < w; c++) {
-                            const pixel = vm.graphics.getPixel(x + c, y + r, mode);
-                            vm.memory[addr + r * w + c] = pixel;
-                        }
-                    }
-                } else if (vm.graphics.graphMode === 4) {
-                    const bytesPerRow = (w + 1) >> 1;
-                    for (let r = 0; r < h; r++) {
-                        const rowOffset = addr + r * bytesPerRow;
-                        for (let c = 0; c < w; c++) {
-                            const pixel = vm.graphics.getPixel(x + c, y + r, mode) & 0x0F;
-                            if (c % 2 === 0) {
-                                vm.memory[rowOffset + (c >> 1)] = (vm.memory[rowOffset + (c >> 1)] & 0x0F) | (pixel << 4);
-                            } else {
-                                vm.memory[rowOffset + (c >> 1)] = (vm.memory[rowOffset + (c >> 1)] & 0xF0) | pixel;
-                            }
-                        }
-                    }
-                } else {
-                    const bytesPerRow = (w + 7) >> 3;
-                    for (let r = 0; r < h; r++) {
-                        const rowOffset = addr + r * bytesPerRow;
-                        for (let c = 0; c < w; c++) {
-                            // Rule A: bit 6=1 is GBUF. Matches Engine.
-                            const pixel = vm.graphics.getPixel(x + c, y + r, mode);
-                            if (pixel) {
-                                vm.memory[rowOffset + (c >> 3)] |= (1 << (7 - (c & 7)));
-                            } else {
-                                vm.memory[rowOffset + (c >> 3)] &= ~(1 << (7 - (c & 7)));
-                            }
-                        }
-                    }
-                }
+                const type = vm.pop(), h = vm.pop(), w = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.GetBlock(x, y, w, h, type, addr);
                 return null;
             }
 
             case SystemOp.FillArea: {
-                const mode = vm.pop(), y = vm.pop(), x = vm.pop();
-                // Rule B: bit 6=1 is VRAM. Flip it for Engine.
-                vm.graphics.fillArea(x, y, mode ^ 0x40);
-                if (mode & 0x40) vm.graphics.flushScreen();
+                const type = vm.pop(), y = vm.pop(), x = vm.pop();
+                vm.graphics.FillArea(x, y, type);
                 return null;
             }
 
@@ -590,18 +504,18 @@ export class SyscallHandler {
 
             case SystemOp.Getms: return Date.now() - vm.startTime;
             case SystemOp.CheckKey: {
-                vm.pop(); // Consume key argument, but not from keyBuffer
-                const keyToCheck = vm.stk[vm.sp]; // the popped value
+                const keyToCheck = vm.pop(); // Consume key argument
                 let hold = 0;
                 if (keyToCheck < 128) {
+                    // Check if a specific key is held
                     hold = (vm.currentKeyDown === keyToCheck) ? keyToCheck : 0;
                 } else {
-                    hold = (vm.currentKeyDown !== 0) ? vm.currentKeyDown : 0;
+                    // key >= 128: return any currently held key
+                    hold = vm.currentKeyDown;
                 }
 
-                // If checking key failed, yielding slightly allows JS to process UI events in tight loops
+                // If no key is held, yield slightly to allow JS to process UI events in tight loops
                 if (!hold && !vm.keyBuffer.length) {
-                    // Setting delayUntil = 0 with resolveKeySignal enforces a small yield to next tick
                     if (!vm['resolveKeySignal']) {
                         let resolver: () => void;
                         const promise = new Promise<void>(resolve => { resolver = resolve; });
@@ -609,7 +523,8 @@ export class SyscallHandler {
                         setTimeout(() => vm.wakeUp(), 0);
                     }
                 }
-                return hold ? -1 : 0; // The LavaX spec for CheckKey(key<128) says it returns non-zero. For key>=128 it returns the key.
+                // LavaX spec: returns the key value if held, 0 otherwise
+                return hold;
             }
             case SystemOp.memmove: {
                 const count = vm.pop(), src = vm.resolveAddress(vm.pop()), dest = vm.resolveAddress(vm.pop());
@@ -653,30 +568,97 @@ export class SyscallHandler {
             }
             case SystemOp.Sin: {
                 const v = vm.pop();
-                return (Math.sin(v * Math.PI / 180) * 0x8000) | 0; // Fix point for legacy GVM
+                // LavaX spec: returns sin(deg) * 1024, range -1024~1024
+                return (Math.sin(v * Math.PI / 180) * 1024) | 0;
             }
             case SystemOp.Cos: {
                 const v = vm.pop();
-                return (Math.cos(v * Math.PI / 180) * 0x8000) | 0;
+                // LavaX spec: returns cos(deg) * 1024, range -1024~1024
+                return (Math.cos(v * Math.PI / 180) * 1024) | 0;
             }
             case SystemOp.PutKey: {
                 vm.keyBuffer.push(vm.pop());
                 return 0;
             }
             case SystemOp.Secret: {
+                const str = vm.pop(), len = vm.pop(), addr = vm.resolveAddress(vm.pop());
+                // XOR encryption/decryption using key string
+                const keyBytes = vm.getStringBytes(str);
+                if (keyBytes && keyBytes.length > 0) {
+                    for (let i = 0; i < len; i++) {
+                        vm.memory[addr + i] ^= keyBytes[i % keyBytes.length];
+                    }
+                }
+                return null;
+            }
+            case SystemOp.DeleteFile: {
+                const path = vm.getStringBytes(vm.pop());
+                if (path) {
+                    const dec = new TextDecoder('gbk');
+                    vm.vfs.deleteFile(dec.decode(path));
+                    return -1; // success
+                }
+                return 0; // failure
+            }
+            case SystemOp.FindWord: {
+                // Dictionary reverse lookup - not applicable in browser IDE context
+                vm.pop(); vm.pop(); vm.pop();
+                return 1; // not found
+            }
+            case SystemOp.PlayInit:
+            case SystemOp.PlayStops:
+            case SystemOp.PlaySleep:
+                // Audio not supported in browser, silently ignore
+                // PlayInit takes 1 arg, return success (0)
+                if (op === SystemOp.PlayInit) { vm.pop(); return 0; }
+                return null;
+            case SystemOp.PlayFile: {
+                // Audio not supported, consume all 4 args
+                vm.pop(); vm.pop(); vm.pop(); vm.pop();
+                return 255; // failure = 255 per spec
+            }
+            case SystemOp.PlayWordVoice: {
+                // Dictionary word voice - not supported
                 vm.pop(); vm.pop(); vm.pop();
                 return null;
             }
-            case SystemOp.PlayStops:
-                return null;
             case SystemOp.SetVolume:
                 vm.pop();
-                return null;
-            case SystemOp.PlaySleep:
                 return null;
             case SystemOp.ReleaseKey:
                 vm.pop();
                 return null;
+            case SystemOp.open_key:
+            case SystemOp.close_key:
+                // Keyboard lock/unlock - no-op in browser
+                return null;
+            case SystemOp.open_uart:
+                // UART open - not supported in browser
+                vm.pop();
+                return null;
+            case SystemOp.close_uart:
+                // UART close
+                return null;
+            case SystemOp.read_uart:
+                // UART read - return >0xFF to indicate no data
+                return 0x100;
+            case SystemOp.write_uart:
+                // UART write - silently discard
+                vm.pop();
+                return null;
+            case SystemOp.sysexecset: {
+                // Call assembly program by path - not supported
+                vm.pop(); vm.pop(); vm.pop();
+                return null;
+            }
+            case SystemOp.Refresh2: {
+                // Refresh top half of screen (160x80) - same as full refresh for us
+                const gbuf = (vm.graphics.graphMode === 1) ? GBUF_OFFSET : GBUF_OFFSET_LVM;
+                const size = (vm.graphics.graphMode === 8) ? 12800 : (vm.graphics.graphMode === 4 ? 6400 : 1600);
+                vm.memory.copyWithin(VRAM_OFFSET, gbuf, gbuf + size);
+                vm.graphics.flushScreen();
+                return null;
+            }
 
             case SystemOp.System: { // 0xD3
                 const sub = vm.pop();
@@ -778,32 +760,159 @@ export class SyscallHandler {
         const fView = new Float32Array(fBuf);
         const iView = new Int32Array(fBuf);
 
-        for (let i = 0; i < format.length; i++) {
-            if (format[i] === '%' && i + 1 < format.length) {
-                const spec = format[++i];
-                if (spec === '%') { result += "%"; continue; }
-                const val = this.vm.stk[startIdx + argIdx++];
-                switch (spec) {
-                    case 'c': result += String.fromCharCode(val); break;
-                    case 'd': case 'i': result += (val | 0).toString(); break;
-                    case 'u': result += (val >>> 0).toString(); break;
-                    case 'x': result += (val >>> 0).toString(16); break;
-                    case 'X': result += (val >>> 0).toString(16).toUpperCase(); break;
-                    case 's': {
-                        const s = this.vm.getStringBytes(val);
-                        if (s) result += new TextDecoder('gbk').decode(s);
-                        break;
-                    }
-                    case 'f': {
-                        iView[0] = val;
-                        result += fView[0].toFixed(6);
-                        break;
-                    }
-                    default: result += "%" + spec;
-                }
-            } else {
-                result += format[i];
+        let i = 0;
+        while (i < format.length) {
+            if (format[i] !== '%') {
+                result += format[i++];
+                continue;
             }
+            i++; // consume '%'
+            if (i >= format.length) break;
+            if (format[i] === '%') { result += '%'; i++; continue; }
+
+            // Parse flags: -, +, 0, space, #
+            let flagLeft = false, flagPlus = false, flagZero = false, flagSpace = false;
+            while (i < format.length) {
+                const f = format[i];
+                if (f === '-') { flagLeft = true; i++; }
+                else if (f === '+') { flagPlus = true; i++; }
+                else if (f === '0') { flagZero = true; i++; }
+                else if (f === ' ') { flagSpace = true; i++; }
+                else if (f === '#') { i++; } // ignore '#' flag
+                else break;
+            }
+
+            // Parse width (may be '*' for arg)
+            let width = 0;
+            if (i < format.length && format[i] === '*') {
+                width = this.vm.stk[startIdx + argIdx++] | 0;
+                if (width < 0) { flagLeft = true; width = -width; }
+                i++;
+            } else {
+                while (i < format.length && format[i] >= '0' && format[i] <= '9') {
+                    width = width * 10 + (format[i].charCodeAt(0) - 48);
+                    i++;
+                }
+            }
+
+            // Parse precision (may be '*' for arg)
+            let precision = -1;
+            if (i < format.length && format[i] === '.') {
+                i++;
+                if (i < format.length && format[i] === '*') {
+                    precision = this.vm.stk[startIdx + argIdx++] | 0;
+                    if (precision < 0) precision = 0;
+                    i++;
+                } else {
+                    precision = 0;
+                    while (i < format.length && format[i] >= '0' && format[i] <= '9') {
+                        precision = precision * 10 + (format[i].charCodeAt(0) - 48);
+                        i++;
+                    }
+                }
+            }
+
+            // Skip length modifiers: l, h, ll, etc.
+            while (i < format.length && (format[i] === 'l' || format[i] === 'h' || format[i] === 'L')) i++;
+
+            if (i >= format.length) break;
+            const spec = format[i++];
+
+            const val = this.vm.stk[startIdx + argIdx++];
+            let formatted = "";
+
+            switch (spec) {
+                case 'c':
+                    formatted = String.fromCharCode(val & 0xFF);
+                    break;
+                case 'd':
+                case 'i': {
+                    const n = val | 0;
+                    let s = Math.abs(n).toString();
+                    if (precision >= 0) s = s.padStart(precision, '0');
+                    const sign = n < 0 ? '-' : (flagPlus ? '+' : (flagSpace ? ' ' : ''));
+                    formatted = sign + s;
+                    break;
+                }
+                case 'u': {
+                    let s = (val >>> 0).toString();
+                    if (precision >= 0) s = s.padStart(precision, '0');
+                    formatted = s;
+                    break;
+                }
+                case 'o': {
+                    let s = (val >>> 0).toString(8);
+                    if (precision >= 0) s = s.padStart(precision, '0');
+                    formatted = s;
+                    break;
+                }
+                case 'x': {
+                    let s = (val >>> 0).toString(16);
+                    if (precision >= 0) s = s.padStart(precision, '0');
+                    formatted = s;
+                    break;
+                }
+                case 'X': {
+                    let s = (val >>> 0).toString(16).toUpperCase();
+                    if (precision >= 0) s = s.padStart(precision, '0');
+                    formatted = s;
+                    break;
+                }
+                case 's': {
+                    const bytes = this.vm.getStringBytes(val);
+                    let s = bytes ? new TextDecoder('gbk').decode(bytes) : '';
+                    if (precision >= 0 && s.length > precision) s = s.substring(0, precision);
+                    formatted = s;
+                    break;
+                }
+                case 'f': {
+                    iView[0] = val;
+                    const prec = precision >= 0 ? precision : 6;
+                    let s = Math.abs(fView[0]).toFixed(prec);
+                    const sign = fView[0] < 0 ? '-' : (flagPlus ? '+' : (flagSpace ? ' ' : ''));
+                    formatted = sign + s;
+                    break;
+                }
+                case 'e':
+                case 'E': {
+                    iView[0] = val;
+                    const prec = precision >= 0 ? precision : 6;
+                    let s = Math.abs(fView[0]).toExponential(prec);
+                    if (spec === 'E') s = s.toUpperCase();
+                    const sign = fView[0] < 0 ? '-' : (flagPlus ? '+' : (flagSpace ? ' ' : ''));
+                    formatted = sign + s;
+                    break;
+                }
+                case 'g':
+                case 'G': {
+                    iView[0] = val;
+                    const prec = precision >= 0 ? Math.max(1, precision) : 6;
+                    let s = parseFloat(Math.abs(fView[0]).toPrecision(prec)).toString();
+                    if (spec === 'G') s = s.toUpperCase();
+                    const sign = fView[0] < 0 ? '-' : (flagPlus ? '+' : (flagSpace ? ' ' : ''));
+                    formatted = sign + s;
+                    break;
+                }
+                default:
+                    formatted = '%' + spec;
+            }
+
+            // Apply width padding
+            if (width > 0 && formatted.length < width) {
+                const padChar = (!flagLeft && flagZero && spec !== 's') ? '0' : ' ';
+                if (flagLeft) {
+                    formatted = formatted.padEnd(width, ' ');
+                } else {
+                    // For zero-padded numbers, pad after sign
+                    if (padChar === '0' && (formatted[0] === '-' || formatted[0] === '+' || formatted[0] === ' ')) {
+                        formatted = formatted[0] + formatted.slice(1).padStart(width - 1, '0');
+                    } else {
+                        formatted = formatted.padStart(width, padChar);
+                    }
+                }
+            }
+
+            result += formatted;
         }
         return result;
     }

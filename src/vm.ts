@@ -177,7 +177,13 @@ export class LavaXVM {
     this.ops[Op.ADD] = makeBinOp((a, b) => (a + b) | 0);
     this.ops[Op.SUB] = makeBinOp((a, b) => (a - b) | 0);
     this.ops[Op.AND] = makeBinOp((a, b) => a & b);
-    this.ops[Op.OR] = makeBinOp((a, b) => a | b);
+    this.ops[Op.OR] = makeBinOp((a, b) => {
+      const result = a | b;
+      if (this.debug) {
+        this.onLog(`[OR] a=${a}(0x${a.toString(16)}) | b=${b}(0x${b.toString(16)}) = ${result}(0x${result.toString(16)})`);
+      }
+      return result;
+    });
     this.ops[Op.XOR] = makeBinOp((a, b) => a ^ b);
     this.ops[Op.MUL] = makeBinOp((a, b) => Math.imul(a, b));
     this.ops[Op.DIV] = makeBinOp((a, b) => b === 0 ? 0 : (a / b) | 0);
@@ -214,7 +220,13 @@ export class LavaXVM {
     this.ops[Op.STORE] = () => {
       const val = stk[--this.sp];
       const addrEncoded = stk[this.sp - 1];
+      if (this.debug) {
+        this.onLog(`[STORE] val=${val} (0x${val.toString(16)}), addrEnc=${addrEncoded} (0x${addrEncoded.toString(16)})`);
+        this.onLog(`[STORE] type bits: 0x${(addrEncoded & 0x70000).toString(16)}`);
+        this.onLog(`[STORE] resolved addr: 0x${(addrEncoded & 0xFFFF).toString(16)}`);
+      }
       this.setValue(addrEncoded, val);
+      // Keep the stored value on stack (for chained expressions)
       stk[this.sp - 1] = val;
     };
     this.ops[Op.LD_IND] = () => {
@@ -227,18 +239,40 @@ export class LavaXVM {
     this.ops[Op.LD_IND_D] = () => {
       stk[this.sp - 1] = memView.getInt32(stk[this.sp - 1] & 0xFFFF, true);
     };
+    // DUP: duplicate top of stack
+    this.ops[Op.DUP] = () => {
+      const val = stk[this.sp - 1];
+      this.push(val);
+    };
+    // SWAP: swap top two stack elements
+    this.ops[Op.SWAP] = () => {
+      if (this.debug) {
+        this.onLog(`[SWAP] before: sp=${this.sp}, stk[${this.sp-2}]=${stk[this.sp-2]}(0x${stk[this.sp-2]?.toString(16)}), stk[${this.sp-1}]=${stk[this.sp-1]}(0x${stk[this.sp-1]?.toString(16)})`);
+      }
+      const a = stk[this.sp - 1];
+      const b = stk[this.sp - 2];
+      stk[this.sp - 2] = a;
+      stk[this.sp - 1] = b;
+      if (this.debug) {
+        this.onLog(`[SWAP] after: stk[${this.sp-2}]=${stk[this.sp-2]}(0x${stk[this.sp-2]?.toString(16)}), stk[${this.sp-1}]=${stk[this.sp-1]}(0x${stk[this.sp-1]?.toString(16)})`);
+      }
+    };
     this.ops[Op.POP] = () => { this.pop(); };
 
     // Flow Control
+    // JZ: pop stack top; if 0, jump to target address
     this.ops[Op.JZ] = () => {
       const addr = this.fd[this.pc] | (this.fd[this.pc + 1] << 8) | (this.fd[this.pc + 2] << 16);
       this.pc += 3;
-      if (this.lastValue === 0) this.pc = addr;
+      const cond = this.pop();
+      if (cond === 0) this.pc = addr;
     };
+    // JNZ: pop stack top; if non-zero, jump to target address
     this.ops[Op.JNZ] = () => {
       const addr = this.fd[this.pc] | (this.fd[this.pc + 1] << 8) | (this.fd[this.pc + 2] << 16);
       this.pc += 3;
-      if (this.lastValue !== 0) this.pc = addr;
+      const cond = this.pop();
+      if (cond !== 0) this.pc = addr;
     };
     this.ops[Op.JMP] = () => {
       this.pc = this.fd[this.pc] | (this.fd[this.pc + 1] << 8) | (this.fd[this.pc + 2] << 16);
@@ -520,7 +554,10 @@ export class LavaXVM {
   }
 
   public resolveAddress(lp: number): number {
-    return (lp & HANDLE_BASE_EBP) ? ((lp + this.base) & 0xFFFF) : (lp & 0xFFFF);
+    // Extract offset from low 16 bits, then add base if HANDLE_BASE_EBP is set
+    // The lp contains (offset_with_base | type_bits | HANDLE_BASE_EBP)
+    // We need to extract just the offset portion (low 16 bits), then add base
+    return (lp & HANDLE_BASE_EBP) ? ((lp & 0xFFFF) + this.base) & 0xFFFF : (lp & 0xFFFF);
   }
 
   private setValue(lp: number, n: number) {

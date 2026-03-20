@@ -99,6 +99,8 @@ export enum Op {
 
   STORE = 0x35,
   LD_IND = 0x36,
+  DUP = 0x37,      // Duplicate top of stack
+  SWAP = 0x71,     // Swap top two stack elements
 
   POP = 0x38,
 

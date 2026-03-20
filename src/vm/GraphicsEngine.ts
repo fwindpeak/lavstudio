@@ -208,21 +208,21 @@ export class GraphicsEngine {
         for (let i = 0; i < lineCount; i++) {
             // mode bit i control line i. 0: update, 1: no update.
             // bit 7 is line 0, bit 6 is line 1...
-            if (mask & (1 << (7 - i))) continue;
+            if ((mask & (1 << (7 - i))) !== 0) continue;
 
             const start = TEXT_OFFSET + i * lineChars;
 
             // Clear specific line in VRAM
-            // Note: In color mode, text might still be drawn as 1-bit or converted.
-            // For now, let's keep text rendering 1-bit but clearing handles the mode.
-            if (this.graphMode === 1) {
+            if (this.graphMode === 8) {
                 const pixelsLineToClear = SCREEN_WIDTH * size;
-                const bytesLineToClear = Math.ceil(pixelsLineToClear / 8);
-                this.memory.fill(0, VRAM_OFFSET + i * bytesLineToClear, VRAM_OFFSET + (i + 1) * bytesLineToClear);
+                this.memory.fill(this.bgColor, VRAM_OFFSET + i * pixelsLineToClear, VRAM_OFFSET + (i + 1) * pixelsLineToClear);
+            } else if (this.graphMode === 4) {
+                const pixelsLineToClear = SCREEN_WIDTH * size;
+                const fillVal = (this.bgColor & 0x0F) | ((this.bgColor & 0x0F) << 4);
+                this.memory.fill(fillVal, VRAM_OFFSET + i * pixelsLineToClear * 0.5, VRAM_OFFSET + (i + 1) * pixelsLineToClear * 0.5);
             } else {
-                const pixelsLineToClear = SCREEN_WIDTH * size;
-                const multiplier = (this.graphMode === 8 ? 1 : 0.5);
-                this.memory.fill(0, VRAM_OFFSET + i * pixelsLineToClear * multiplier, VRAM_OFFSET + (i + 1) * pixelsLineToClear * multiplier);
+                const bytesLineToClear = Math.ceil((SCREEN_WIDTH * size) / 8);
+                this.memory.fill(0, VRAM_OFFSET + i * bytesLineToClear, VRAM_OFFSET + (i + 1) * bytesLineToClear);
             }
 
             // Find end of string or end of line (whichever comes first)
@@ -231,9 +231,9 @@ export class GraphicsEngine {
 
             const bytes = this.memory.subarray(start, end);
             if (bytes.length > 0) {
-                // Direct to VRAM (bit 6 = 0)
-                const mode = (size === 16 ? 0x80 : 0) | 0x01;
-                this.drawText(0, i * size, bytes, size, mode);
+                // To TextOut via VRAM: bit 7 = (size===16?1:0), bit 6 = 1 (VRAM), bit 2-0 = 1 (copy)
+                const type = (size === 16 ? 0x80 : 0) | 0x40 | 0x01;
+                this.TextOut(0, i * size, bytes, type);
             }
         }
     }
@@ -396,188 +396,532 @@ export class GraphicsEngine {
         }
     }
 
-    public drawText(x: number, y: number, bytes: Uint8Array, size: number, mode: number) {
+    public TextOut(x: number, y: number, bytes: Uint8Array, type: number) {
         if (!this.fontData) return;
+
+        const isBigFont = (type & 0x80) !== 0; // bit 7 = 1 -> big font (16), 0 -> small font (12)
+        const toVram = (type & 0x40) !== 0;    // bit 6 = 1 -> VRAM (screen)
+        const hFlip = (type & 0x20) !== 0;     // bit 5 = 1 -> horizontal flip
+        const reverseDisplay = (type & 0x08) !== 0; // bit 3 = 1 -> reverse color
+        const drawMode = type & 0x07;          // 1:copy 2:not 3:or 4:and 5:xor
+
+        const size = isBigFont ? 16 : 12;
+        const offset = toVram ? this.getVramOffset() : this.getGbufOffset();
+
+        // Ensure flip requirement is met? "要求图形宽度和x坐标都必须是8的整数倍"
+        // Let's just implement it visually.
+
         let curX = x;
-        const color = (mode & 0x07) === 1 ? (this.graphMode > 1 ? this.fgColor : 1) :
-            ((mode & 0x07) === 0 ? (this.graphMode > 1 ? this.bgColor : 0) : (mode & 0x07));
         let i = 0;
-        while (i < bytes.length) {
+
+        const drawCharCustom = (cx: number, cy: number, b1: number, b2: number | null) => {
+            const isChinese = b2 !== null;
+            const w = isChinese ? size : (isBigFont ? 8 : 6);
+            if (!this.fontData) return;
+
+            let charBytes = [];
+            if (isChinese) {
+                const base = this.fontOffsets[isBigFont ? 2 : 3];
+                const rIdx = b1 - 0xA1, cIdx = b2 - 0xA1;
+                if (rIdx < 0 || rIdx >= 94 || cIdx < 0 || cIdx >= 94) return;
+                const byteSize = isBigFont ? 32 : 24;
+                const addr = base + (rIdx * 94 + cIdx) * byteSize;
+                charBytes = Array.from(this.fontData.subarray(addr, addr + byteSize));
+            } else {
+                const base = this.fontOffsets[isBigFont ? 0 : 1];
+                const charIdx = b1 - 32;
+                if (charIdx < 0 || charIdx >= 95) return;
+                const addr = base + charIdx * size;
+                charBytes = Array.from(this.fontData.subarray(addr, addr + size));
+            }
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < w; c++) {
+                    let sourceC = hFlip ? (w - 1 - c) : c;
+                    let bit = 0;
+                    if (isChinese) {
+                        const byteIdx = r * 2 + (sourceC > 7 ? 1 : 0);
+                        const bIdx = 7 - (sourceC % 8);
+                        bit = (charBytes[byteIdx] >> bIdx) & 1;
+                    } else {
+                        const bIdx = 7 - sourceC;
+                        bit = (charBytes[r] >> bIdx) & 1;
+                    }
+
+                    if (reverseDisplay) bit = 1 - bit;
+
+                    const screenX = cx + c;
+                    const screenY = cy + r;
+                    if (screenX < 0 || screenX >= SCREEN_WIDTH || screenY < 0 || screenY >= SCREEN_HEIGHT) continue;
+
+                    const i = screenY * SCREEN_WIDTH + screenX;
+                    const byteIdxMemory = offset + (this.graphMode === 8 ? i : (this.graphMode === 4 ? Math.floor(i / 2) : Math.floor(i / 8)));
+
+                    let newPixel = 0;
+                    if (this.graphMode === 8) {
+                        const oldPixel = this.memory[byteIdxMemory];
+                        let sourceColor = bit ? this.fgColor : this.bgColor;
+                        switch (drawMode) {
+                            case 1: newPixel = sourceColor; break;
+                            case 2: newPixel = 255 - sourceColor; break;
+                            case 3: newPixel = oldPixel | sourceColor; break;
+                            case 4: newPixel = oldPixel & sourceColor; break;
+                            case 5: newPixel = oldPixel ^ sourceColor; break;
+                            default: continue;
+                        }
+                        this.memory[byteIdxMemory] = newPixel;
+                    } else if (this.graphMode === 4) {
+                        const isLeft = (screenX % 2 === 0);
+                        const oldPixel = isLeft ? (this.memory[byteIdxMemory] >> 4) : (this.memory[byteIdxMemory] & 0x0F);
+                        let sourceColor = bit ? (this.fgColor & 0x0F) : (this.bgColor & 0x0F);
+                        switch (drawMode) {
+                            case 1: newPixel = sourceColor; break;
+                            case 2: newPixel = 15 - sourceColor; break;
+                            case 3: newPixel = oldPixel | sourceColor; break;
+                            case 4: newPixel = oldPixel & sourceColor; break;
+                            case 5: newPixel = oldPixel ^ sourceColor; break;
+                            default: continue;
+                        }
+                        if (isLeft) this.memory[byteIdxMemory] = (this.memory[byteIdxMemory] & 0x0F) | (newPixel << 4);
+                        else this.memory[byteIdxMemory] = (this.memory[byteIdxMemory] & 0xF0) | newPixel;
+                    } else {
+                        const bIdxData = 7 - (screenX % 8);
+                        const oldPixel = (this.memory[byteIdxMemory] >> bIdxData) & 1;
+                        switch (drawMode) {
+                            case 1: newPixel = bit; break;
+                            case 2: newPixel = 1 - bit; break;
+                            case 3: newPixel = oldPixel | bit; break;
+                            case 4: newPixel = oldPixel & bit; break;
+                            case 5: newPixel = oldPixel ^ bit; break;
+                            default: continue;
+                        }
+                        if (newPixel) this.memory[byteIdxMemory] |= (1 << bIdxData);
+                        else this.memory[byteIdxMemory] &= ~(1 << bIdxData);
+                    }
+                }
+            }
+        };
+
+        while (i < bytes.length && bytes[i] !== 0) {
             const b1 = bytes[i];
             if (b1 < 0x80) {
-                this.drawChar(curX, y, b1, size, mode, color);
-                curX += (size === 16 ? 8 : 6); i++;
+                drawCharCustom(curX, y, b1, null);
+                curX += (isBigFont ? 8 : 6);
+                i++;
             } else {
                 const b2 = bytes[i + 1];
                 if (b2) {
-                    this.drawChinese(curX, y, b1, b2, size, mode, color);
+                    drawCharCustom(curX, y, b1, b2);
                     curX += size;
                     i += 2;
-                } else i++;
+                } else {
+                    i++;
+                }
             }
         }
+
+        if (toVram) this.flushScreen();
     }
 
-    public drawChar(x: number, y: number, code: number, size: number, mode: number, color: number = 1) {
-        const base = this.fontOffsets[size === 16 ? 0 : 1];
-        const charIdx = code - 32;
-        if (charIdx < 0 || charIdx >= 95) return;
-        const width = size === 16 ? 8 : 6;
-        const offset = base + charIdx * size;
-        for (let r = 0; r < size; r++) {
-            const byte = this.fontData![offset + r];
-            for (let c = 0; c < width; c++) if ((byte >> (7 - c)) & 1) this.setPixel(x + c, y + r, color, mode);
-        }
-    }
+    private drawPixelStupid(x: number, y: number, type: number, forceGbuf: boolean = false) {
+        if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) return;
+        const toGbuf = forceGbuf || ((type & 0x40) !== 0);
+        const offset = toGbuf ? this.getGbufOffset() : this.getVramOffset();
+        const drawMode = type & 0x07;
 
-    public drawChinese(x: number, y: number, b1: number, b2: number, size: number, mode: number, color: number = 1) {
-        const base = this.fontOffsets[size === 16 ? 2 : 3];
-        const rIdx = b1 - 0xA1, cIdx = b2 - 0xA1;
-        if (rIdx < 0 || rIdx >= 94 || cIdx < 0 || cIdx >= 94) return;
-        const charBytes = size === 16 ? 32 : 24;
-        const offset = base + (rIdx * 94 + cIdx) * charBytes;
-        for (let r = 0; r < size; r++) {
-            const bL = this.fontData![offset + r * 2], bR = this.fontData![offset + r * 2 + 1];
-            for (let b = 0; b < 8; b++) if ((bL >> (7 - b)) & 1) this.setPixel(x + b, y + r, color, mode);
-            for (let b = 0; b < size - 8; b++) if ((bR >> (7 - b)) & 1) this.setPixel(x + 8 + b, y + r, color, mode);
-        }
-    }
+        const i = y * SCREEN_WIDTH + x;
+        if (this.graphMode === 8) {
+            const byteIdx = offset + i;
+            const oldPixel = this.memory[byteIdx];
+            let newPixel = oldPixel;
+            if (drawMode === 0) newPixel = this.bgColor;
+            else if (drawMode === 1) newPixel = this.fgColor;
+            else if (drawMode === 2) newPixel = 255 - oldPixel;
+            this.memory[byteIdx] = newPixel;
+        } else if (this.graphMode === 4) {
+            const byteIdx = offset + Math.floor(i / 2);
+            const isLeft = (i % 2 === 0);
+            const oldPixel = isLeft ? (this.memory[byteIdx] >> 4) : (this.memory[byteIdx] & 0x0F);
+            let newPixel = oldPixel;
+            if (drawMode === 0) newPixel = this.bgColor & 0x0F;
+            else if (drawMode === 1) newPixel = this.fgColor & 0x0F;
+            else if (drawMode === 2) newPixel = 15 - oldPixel;
 
-    public drawBox(x: number, y: number, w: number, h: number, mode: number = 1) {
-        let color = mode & 0x07;
-        if (this.graphMode > 1) {
-            if (color === 0) color = this.bgColor;
-            else if (color === 1) color = this.fgColor;
-        }
-        // Top and bottom edges (excluding corners)
-        for (let i = x + 1; i < x + w - 1; i++) {
-            this.setPixel(i, y, color, mode);
-            this.setPixel(i, y + h - 1, color, mode);
-        }
-        // Left and right edges (including corners)
-        for (let i = y; i < y + h; i++) {
-            this.setPixel(x, i, color, mode);
-            this.setPixel(x + w - 1, i, color, mode);
-        }
-    }
-
-    public drawFillBox(x: number, y: number, w: number, h: number, mode: number = 1) {
-        let color = mode & 0x07;
-        if (this.graphMode > 1) {
-            if (color === 0) color = this.bgColor;
-            else if (color === 1) color = this.fgColor;
-        }
-        for (let i = y; i < y + h; i++) {
-            for (let j = x; j < x + w; j++) {
-                this.setPixel(j, i, color, mode);
-            }
-        }
-    }
-
-    public drawLine(x1: number, y1: number, x2: number, y2: number, mode: number = 1) {
-        let color = mode & 0x07;
-        if (this.graphMode > 1) {
-            if (color === 0) color = this.bgColor;
-            else if (color === 1) color = this.fgColor;
-        }
-        const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
-        const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
-        let err = dx - dy;
-        while (true) {
-            this.setPixel(x1, y1, color, mode);
-            if (x1 === x2 && y1 === y2) break;
-            const e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x1 += sx; }
-            if (e2 < dx) { err += dx; y1 += sy; }
-        }
-    }
-
-    public drawCircle(xc: number, yc: number, r: number, mode: number = 1) {
-        let color = mode & 0x07;
-        if (this.graphMode > 1) {
-            if (color === 0) color = this.bgColor;
-            else if (color === 1) color = this.fgColor;
-        }
-        let x = 0, y = r;
-        let d = 3 - 2 * r;
-        const drawPoints = (xc: number, yc: number, x: number, y: number) => {
-            this.setPixel(xc + x, yc + y, color, mode); this.setPixel(xc - x, yc + y, color, mode);
-            this.setPixel(xc + x, yc - y, color, mode); this.setPixel(xc - x, yc - y, color, mode);
-            this.setPixel(xc + y, yc + x, color, mode); this.setPixel(xc - y, yc + x, color, mode);
-            this.setPixel(xc + y, yc - x, color, mode); this.setPixel(xc - y, yc - x, color, mode);
-        };
-        drawPoints(xc, yc, x, y);
-        while (y >= x) {
-            x++;
-            if (d > 0) { y--; d = d + 4 * (x - y) + 10; }
-            else d = d + 4 * x + 6;
-            drawPoints(xc, yc, x, y);
-        }
-    }
-
-    public drawFillCircle(xc: number, yc: number, r: number, mode: number = 1) {
-        for (let i = 0; i <= r; i++) {
-            let d = Math.floor(Math.sqrt(r * r - i * i));
-            this.drawLine(xc - d, yc + i, xc + d, yc + i, mode | 1);
-            this.drawLine(xc - d, yc - i, xc + d, yc - i, mode | 1);
-        }
-    }
-
-    public drawEllipse(xc: number, yc: number, rx: number, ry: number, fill: boolean, mode: number = 1) {
-        if (fill) {
-            for (let i = -ry; i <= ry; i++) {
-                let dx = Math.floor(rx * Math.sqrt(1 - (i * i) / (ry * ry)));
-                this.drawLine(xc - dx, yc + i, xc + dx, yc + i, mode);
+            if (isLeft) {
+                this.memory[byteIdx] = (this.memory[byteIdx] & 0x0F) | (newPixel << 4);
+            } else {
+                this.memory[byteIdx] = (this.memory[byteIdx] & 0xF0) | newPixel;
             }
         } else {
-            let x = 0, y = ry;
-            let rx2 = rx * rx, ry2 = ry * ry;
-            let tworx2 = 2 * rx2, twory2 = 2 * ry2;
-            let px = 0, py = tworx2 * y;
-            let p = Math.round(ry2 - (rx2 * ry) + (0.25 * rx2));
-            const drawPoints = (xc: number, yc: number, x: number, y: number) => {
-                this.setPixel(xc + x, yc + y, 1, mode); this.setPixel(xc - x, yc + y, 1, mode);
-                this.setPixel(xc + x, yc - y, 1, mode); this.setPixel(xc - x, yc - y, 1, mode);
-            };
-            drawPoints(xc, yc, x, y);
-            while (px < py) {
-                x++; px += twory2;
-                if (p < 0) p += ry2 + px;
-                else { y--; py -= tworx2; p += ry2 + px - py; }
-                drawPoints(xc, yc, x, y);
+            const byteIdx = offset + Math.floor(i / 8);
+            const bitIdx = 7 - (i % 8);
+            const oldPixel = (this.memory[byteIdx] >> bitIdx) & 1;
+            let newPixel = oldPixel;
+            if (drawMode === 0) newPixel = 0;
+            else if (drawMode === 1) newPixel = 1;
+            else if (drawMode === 2) newPixel = 1 - oldPixel;
+
+            if (newPixel) this.memory[byteIdx] |= (1 << bitIdx);
+            else this.memory[byteIdx] &= ~(1 << bitIdx);
+        }
+    }
+
+    public Point(x: number, y: number, type: number) {
+        this.drawPixelStupid(x, y, type, false);
+        if ((type & 0x40) === 0) this.flushScreen();
+    }
+
+    public Line(x0: number, y0: number, x1: number, y1: number, type: number) {
+        const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+        const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        let err = dx - dy;
+        let cx = x0, cy = y0;
+        while (true) {
+            this.drawPixelStupid(cx, cy, type, false);
+            if (cx === x1 && cy === y1) break;
+            const e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; cx += sx; }
+            if (e2 < dx) { err += dx; cy += sy; }
+        }
+        if ((type & 0x40) === 0) this.flushScreen();
+    }
+
+    public Box(x0: number, y0: number, x1: number, y1: number, fill: number, type: number) {
+        const minX = Math.min(x0, x1);
+        const maxX = Math.max(x0, x1);
+        const minY = Math.min(y0, y1);
+        const maxY = Math.max(y0, y1);
+
+        if (fill) {
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    this.drawPixelStupid(x, y, type, false);
+                }
             }
-            p = Math.round(ry2 * (x + 0.5) * (x + 0.5) + rx2 * (y - 1) * (y - 1) - rx2 * ry2);
-            while (y > 0) {
-                y--; py -= tworx2;
-                if (p > 0) p += rx2 - py;
-                else { x++; px += twory2; p += rx2 - py + px; }
-                drawPoints(xc, yc, x, y);
+        } else {
+            for (let x = minX; x <= maxX; x++) {
+                this.drawPixelStupid(x, minY, type, false);
+                this.drawPixelStupid(x, maxY, type, false);
+            }
+            for (let y = minY; y <= maxY; y++) {
+                this.drawPixelStupid(minX, y, type, false);
+                this.drawPixelStupid(maxX, y, type, false);
+            }
+        }
+        if ((type & 0x40) === 0) this.flushScreen();
+    }
+
+    public Block(x0: number, y0: number, x1: number, y1: number, type: number) {
+        const minX = Math.min(x0, x1);
+        const maxX = Math.max(x0, x1);
+        const minY = Math.min(y0, y1);
+        const maxY = Math.max(y0, y1);
+
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+                this.drawPixelStupid(x, y, type, true);
             }
         }
     }
 
-    public fillArea(x: number, y: number, mode: number) {
-        // Basic seed fill (flood fill) implementation
-        const targetColor = this.getPixel(x, y);
-        const fillColor = 1; // Usually fills with 1
+    public Rectangle(x0: number, y0: number, x1: number, y1: number, type: number) {
+        const minX = Math.min(x0, x1);
+        const maxX = Math.max(x0, x1);
+        const minY = Math.min(y0, y1);
+        const maxY = Math.max(y0, y1);
+
+        for (let x = minX; x <= maxX; x++) {
+            this.drawPixelStupid(x, minY, type, true);
+            this.drawPixelStupid(x, maxY, type, true);
+        }
+        for (let y = minY; y <= maxY; y++) {
+            this.drawPixelStupid(minX, y, type, true);
+            this.drawPixelStupid(maxX, y, type, true);
+        }
+    }
+
+    public Circle(xc: number, yc: number, r: number, fill: number, type: number) {
+        if (fill) {
+            for (let y = -r; y <= r; y++) {
+                let dx = Math.floor(Math.sqrt(Math.max(0, r * r - y * y)));
+                for (let x = -dx; x <= dx; x++) {
+                    this.drawPixelStupid(xc + x, yc + y, type, false);
+                }
+            }
+        } else {
+            let x = 0, y = r;
+            let d = 3 - 2 * r;
+            const drawP = (cx: number, cy: number, px: number, py: number) => {
+                this.drawPixelStupid(cx + px, cy + py, type, false);
+                this.drawPixelStupid(cx - px, cy + py, type, false);
+                this.drawPixelStupid(cx + px, cy - py, type, false);
+                this.drawPixelStupid(cx - px, cy - py, type, false);
+                this.drawPixelStupid(cx + py, cy + px, type, false);
+                this.drawPixelStupid(cx - py, cy + px, type, false);
+                this.drawPixelStupid(cx + py, cy - px, type, false);
+                this.drawPixelStupid(cx - py, cy - px, type, false);
+            };
+            drawP(xc, yc, x, y);
+            while (y >= x) {
+                x++;
+                if (d > 0) { y--; d = d + 4 * (x - y) + 10; }
+                else d = d + 4 * x + 6;
+                drawP(xc, yc, x, y);
+            }
+        }
+        if ((type & 0x40) === 0) this.flushScreen();
+    }
+
+    public Ellipse(xc: number, yc: number, a: number, b: number, fill: number, type: number) {
+        if (a === 0 || b === 0) return;
+        if (fill) {
+            for (let y = -b; y <= b; y++) {
+                let dx = Math.floor(a * Math.sqrt(Math.max(0, 1 - (y * y) / (b * b))));
+                for (let x = -dx; x <= dx; x++) {
+                    this.drawPixelStupid(xc + x, yc + y, type, false);
+                }
+            }
+        } else {
+            let x = 0, y = b;
+            let a2 = a * a, b2 = b * b;
+            let d1 = b2 - a2 * b + 0.25 * a2;
+            let dx = 2 * b2 * x, dy = 2 * a2 * y;
+
+            const drawP = (cx: number, cy: number, px: number, py: number) => {
+                this.drawPixelStupid(cx + px, cy + py, type, false);
+                this.drawPixelStupid(cx - px, cy + py, type, false);
+                this.drawPixelStupid(cx + px, cy - py, type, false);
+                this.drawPixelStupid(cx - px, cy - py, type, false);
+            };
+
+            while (dx < dy) {
+                drawP(xc, yc, x, y);
+                if (d1 < 0) {
+                    x++; dx += 2 * b2; d1 += dx + b2;
+                } else {
+                    x++; y--; dx += 2 * b2; dy -= 2 * a2; d1 += dx - dy + b2;
+                }
+            }
+
+            let d2 = b2 * (x + 0.5) * (x + 0.5) + a2 * (y - 1) * (y - 1) - a2 * b2;
+            while (y >= 0) {
+                drawP(xc, yc, x, y);
+                if (d2 > 0) {
+                    y--; dy -= 2 * a2; d2 += a2 - dy;
+                } else {
+                    y--; x++; dy -= 2 * a2; dx += 2 * b2; d2 += dx - dy + a2;
+                }
+            }
+        }
+        if ((type & 0x40) === 0) this.flushScreen();
+    }
+
+    public WriteBlock(x: number, y: number, w: number, h: number, type: number, addr: number) {
+        const toVram = (type & 0x40) !== 0; // bit 6 = 1 -> VRAM
+        const hFlip = (type & 0x20) !== 0; // bit 5 = 1 -> horizontal flip
+        const reverseDisplay = (type & 0x08) !== 0; // bit 3 = 1 -> not
+        const drawMode = type & 0x07; // 1:copy 2:not 3:or 4:and 5:xor
+
+        const offset = toVram ? this.getVramOffset() : this.getGbufOffset();
+
+        if (this.graphMode === 8) {
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    let sourcePixel = this.memory[addr + r * w + (hFlip ? (w - 1 - c) : c)];
+                    if (reverseDisplay) sourcePixel = 255 - sourcePixel;
+
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    if (screenX < 0 || screenX >= SCREEN_WIDTH || screenY < 0 || screenY >= SCREEN_HEIGHT) continue;
+
+                    const byteIdx = offset + screenY * SCREEN_WIDTH + screenX;
+                    const oldPixel = this.memory[byteIdx];
+                    let newPixel = oldPixel;
+                    switch (drawMode) {
+                        case 1: newPixel = sourcePixel; break;
+                        case 2: newPixel = 255 - sourcePixel; break;
+                        case 3: newPixel = oldPixel | sourcePixel; break;
+                        case 4: newPixel = oldPixel & sourcePixel; break;
+                        case 5: newPixel = oldPixel ^ sourcePixel; break;
+                    }
+                    this.memory[byteIdx] = newPixel;
+                }
+            }
+        } else if (this.graphMode === 4) {
+            const bytesPerRow = Math.ceil(w / 2);
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    let sourceC = hFlip ? (w - 1 - c) : c;
+                    const sourceByte = this.memory[addr + r * bytesPerRow + Math.floor(sourceC / 2)];
+                    let sourcePixel = (sourceC % 2 === 0) ? (sourceByte >> 4) : (sourceByte & 0x0F);
+                    if (reverseDisplay) sourcePixel = 15 - sourcePixel;
+
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    if (screenX < 0 || screenX >= SCREEN_WIDTH || screenY < 0 || screenY >= SCREEN_HEIGHT) continue;
+
+                    const byteIdx = offset + Math.floor((screenY * SCREEN_WIDTH + screenX) / 2);
+                    const isLeft = (screenX % 2 === 0);
+                    const oldPixel = isLeft ? (this.memory[byteIdx] >> 4) : (this.memory[byteIdx] & 0x0F);
+                    let newPixel = oldPixel;
+                    switch (drawMode) {
+                        case 1: newPixel = sourcePixel; break;
+                        case 2: newPixel = 15 - sourcePixel; break;
+                        case 3: newPixel = oldPixel | sourcePixel; break;
+                        case 4: newPixel = oldPixel & sourcePixel; break;
+                        case 5: newPixel = oldPixel ^ sourcePixel; break;
+                    }
+                    if (isLeft) {
+                        this.memory[byteIdx] = (this.memory[byteIdx] & 0x0F) | (newPixel << 4);
+                    } else {
+                        this.memory[byteIdx] = (this.memory[byteIdx] & 0xF0) | newPixel;
+                    }
+                }
+            }
+        } else {
+            const bytesPerRow = Math.ceil(w / 8);
+            for (let r = 0; r < h; r++) {
+                const rowOffset = addr + r * bytesPerRow;
+                for (let c = 0; c < w; c++) {
+                    let sourceC = hFlip ? (w - 1 - c) : c;
+                    let bit = (this.memory[rowOffset + Math.floor(sourceC / 8)] >> (7 - (sourceC % 8))) & 1;
+                    if (reverseDisplay) bit = 1 - bit;
+
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    if (screenX < 0 || screenX >= SCREEN_WIDTH || screenY < 0 || screenY >= SCREEN_HEIGHT) continue;
+
+                    const byteIdx = offset + Math.floor((screenY * SCREEN_WIDTH + screenX) / 8);
+                    const bIdx = 7 - ((screenY * SCREEN_WIDTH + screenX) % 8);
+                    const oldPixel = (this.memory[byteIdx] >> bIdx) & 1;
+                    let newPixel = oldPixel;
+                    switch (drawMode) {
+                        case 1: newPixel = bit; break;
+                        case 2: newPixel = 1 - bit; break;
+                        case 3: newPixel = oldPixel | bit; break;
+                        case 4: newPixel = oldPixel & bit; break;
+                        case 5: newPixel = oldPixel ^ bit; break;
+                    }
+                    if (newPixel) this.memory[byteIdx] |= (1 << bIdx);
+                    else this.memory[byteIdx] &= ~(1 << bIdx);
+                }
+            }
+        }
+        if (toVram) this.flushScreen();
+    }
+
+    public GetBlock(x: number, y: number, w: number, h: number, type: number, dataAddr: number) {
+        const fromVram = (type & 0x40) !== 0;
+        const offset = fromVram ? this.getVramOffset() : this.getGbufOffset();
+
+        x = x & ~7;
+        w = w & ~7;
+
+        if (this.graphMode === 8) {
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    let pixel = 0;
+                    if (screenX >= 0 && screenX < SCREEN_WIDTH && screenY >= 0 && screenY < SCREEN_HEIGHT) {
+                        pixel = this.memory[offset + screenY * SCREEN_WIDTH + screenX];
+                    }
+                    this.memory[dataAddr + r * w + c] = pixel;
+                }
+            }
+        } else if (this.graphMode === 4) {
+            const bytesPerRow = Math.ceil(w / 2);
+            for (let r = 0; r < h; r++) {
+                for (let c = 0; c < w; c++) {
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    let pixel = 0;
+                    if (screenX >= 0 && screenX < SCREEN_WIDTH && screenY >= 0 && screenY < SCREEN_HEIGHT) {
+                        const sourceByte = this.memory[offset + Math.floor((screenY * SCREEN_WIDTH + screenX) / 2)];
+                        pixel = (screenX % 2 === 0) ? (sourceByte >> 4) : (sourceByte & 0x0F);
+                    }
+                    const bytePos = dataAddr + r * bytesPerRow + Math.floor(c / 2);
+                    if (c % 2 === 0) {
+                        this.memory[bytePos] = (this.memory[bytePos] & 0x0F) | (pixel << 4);
+                    } else {
+                        this.memory[bytePos] = (this.memory[bytePos] & 0xF0) | pixel;
+                    }
+                }
+            }
+        } else {
+            const bytesPerRow = w >> 3;
+            for (let r = 0; r < h; r++) {
+                const rowOffset = dataAddr + r * bytesPerRow;
+                for (let c = 0; c < w; c++) {
+                    const screenX = x + c;
+                    const screenY = y + r;
+                    let pixel = 0;
+                    if (screenX >= 0 && screenX < SCREEN_WIDTH && screenY >= 0 && screenY < SCREEN_HEIGHT) {
+                        const byteIdx = offset + Math.floor((screenY * SCREEN_WIDTH + screenX) / 8);
+                        const bIdx = 7 - (screenX % 8);
+                        pixel = (this.memory[byteIdx] >> bIdx) & 1;
+                    }
+                    const bytePos = rowOffset + (c >> 3);
+                    const bIdxData = 7 - (c & 7);
+                    if (pixel) this.memory[bytePos] |= (1 << bIdxData);
+                    else this.memory[bytePos] &= ~(1 << bIdxData);
+                }
+            }
+        }
+    }
+
+    public FillArea(x: number, y: number, type: number) {
+        if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) return;
+        const toVram = (type & 0x40) !== 0;
+        const offset = toVram ? this.getVramOffset() : this.getGbufOffset();
+
+        const getP = (cx: number, cy: number) => {
+            const i = cy * SCREEN_WIDTH + cx;
+            if (this.graphMode === 8) return this.memory[offset + i];
+            if (this.graphMode === 4) {
+                const b = this.memory[offset + Math.floor(i / 2)];
+                return (i % 2 === 0) ? (b >> 4) : (b & 0x0F);
+            }
+            return (this.memory[offset + Math.floor(i / 8)] >> (7 - (i % 8))) & 1;
+        };
+
+        const setP = (cx: number, cy: number, val: number) => {
+            const i = cy * SCREEN_WIDTH + cx;
+            if (this.graphMode === 8) this.memory[offset + i] = val;
+            else if (this.graphMode === 4) {
+                const byteIdx = offset + Math.floor(i / 2);
+                if (i % 2 === 0) this.memory[byteIdx] = (this.memory[byteIdx] & 0x0F) | (val << 4);
+                else this.memory[byteIdx] = (this.memory[byteIdx] & 0xF0) | val;
+            } else {
+                const byteIdx = offset + Math.floor(i / 8);
+                const bitIdx = 7 - (i % 8);
+                if (val) this.memory[byteIdx] |= (1 << bitIdx);
+                else this.memory[byteIdx] &= ~(1 << bitIdx);
+            }
+        };
+
+        const targetColor = getP(x, y);
+        let fillColor = 1;
+        if (this.graphMode > 1) fillColor = this.fgColor;
         if (targetColor === fillColor) return;
 
         const stack = [[x, y]];
         while (stack.length > 0) {
             const [cx, cy] = stack.pop()!;
             if (cx < 0 || cx >= SCREEN_WIDTH || cy < 0 || cy >= SCREEN_HEIGHT) continue;
-            if (this.getPixel(cx, cy) === targetColor) {
-                this.setPixel(cx, cy, fillColor, mode); // Mode is already settled by handler
+            if (getP(cx, cy) === targetColor) {
+                setP(cx, cy, fillColor);
                 stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
             }
         }
+        if (toVram) this.flushScreen();
     }
 
-    public xDraw(mode: number) {
+    public XDraw(mode: number) {
         const width = SCREEN_WIDTH;
         const height = SCREEN_HEIGHT;
         const bufferSize = (width * height) / 8;
-        const tempBuf = new Uint8Array(this.memory.buffer, this.memory.byteOffset + GBUF_OFFSET, bufferSize).slice();
+        const tempBuf = new Uint8Array(this.memory.buffer, this.memory.byteOffset + this.getGbufOffset(), bufferSize).slice();
 
         const getBit = (buf: Uint8Array, x: number, y: number) => {
             const i = y * width + x;
@@ -622,41 +966,6 @@ export class GraphicsEngine {
             return;
         }
 
-        this.memory.set(newBuf, GBUF_OFFSET);
-    }
-
-    public getBlock(x: number, y: number, w: number, h: number, mode: number, dataAddr: number) {
-        if (this.graphMode === 8) {
-            for (let r = 0; r < h; r++) {
-                for (let c = 0; c < w; c++) {
-                    const pixel = this.getPixel(x + c, y + r, mode);
-                    this.memory[dataAddr + r * w + c] = pixel;
-                }
-            }
-        } else if (this.graphMode === 4) {
-            const bytesPerRow = (w + 1) >> 1;
-            for (let r = 0; r < h; r++) {
-                const rowOffset = dataAddr + r * bytesPerRow;
-                for (let c = 0; c < w; c++) {
-                    const pixel = this.getPixel(x + c, y + r, mode) & 0x0F;
-                    if (c % 2 === 0) {
-                        this.memory[rowOffset + (c >> 1)] = (this.memory[rowOffset + (c >> 1)] & 0x0F) | (pixel << 4);
-                    } else {
-                        this.memory[rowOffset + (c >> 1)] = (this.memory[rowOffset + (c >> 1)] & 0xF0) | pixel;
-                    }
-                }
-            }
-        } else {
-            const bytesPerRow = (w + 7) >> 3;
-            for (let r = 0; r < h; r++) {
-                for (let c = 0; c < w; c++) {
-                    const pixel = this.getPixel(x + c, y + r, mode);
-                    const byteIdx = dataAddr + r * bytesPerRow + (c >> 3);
-                    const bitIdx = 7 - (c & 7);
-                    if (pixel) this.memory[byteIdx] |= (1 << bitIdx);
-                    else this.memory[byteIdx] &= ~(1 << bitIdx);
-                }
-            }
-        }
+        this.memory.set(newBuf, this.getGbufOffset());
     }
 }

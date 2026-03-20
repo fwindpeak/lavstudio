@@ -606,17 +606,26 @@ export class LavaXCompiler {
               const val = values[i];
               const offset = baseAddr + i * elementSize;
 
-              // 1. Calculate address: LEA_L_B/W/D offset
+              // 1. Push value first
+              this.pushLiteral(val);
+
+              // 2. Calculate address: LEA_L_B/W/D offset
               if (token === 'char') this.asm.push(`LEA_L_B ${offset}`);
               else if (token === 'int') this.asm.push(`LEA_L_W ${offset}`);
               else this.asm.push(`LEA_L_D ${offset}`);
 
-              // 2. Push value
-              this.pushLiteral(val);
+              // 3. Add handle type encoding
+              let handleType = '0x10000';
+              if (pointerDepth > 0) handleType = '0x40000';
+              else if (token === 'int') handleType = '0x20000';
+              else if (token === 'long' || token === 'addr') handleType = '0x40000';
+              this.asm.push(`PUSH_D ${handleType}`);
+              this.asm.push('OR');
+              this.asm.push('SWAP');
 
-              // 3. Store
+              // 4. Store
               this.asm.push('STORE');
-              // 4. Pop result of store (which is the value)
+              // 5. Pop result of store (which is the value)
               this.asm.push('POP');
             }
 
@@ -630,10 +639,34 @@ export class LavaXCompiler {
           const addr = this.localOffset;
           this.localOffset += size * elementSize;
 
-          this.parseExpression();
-          this.asm.push(`${token === 'char' ? 'LEA_L_B' : (token === 'int' ? 'LEA_L_W' : 'LEA_L_D')} ${addr}`);
-          this.asm.push('STORE');
-          this.asm.push('POP');
+            // Parse the value expression first
+            this.parseExpression();
+            // Then get address for the destination variable
+            // For pointer variables (pointerDepth > 0), they store a full handle (24-bit),
+            // so we treat them as DWORD (4-byte) storage.
+            // We use PUSH_W + PUSH_D 0x800000 + OR to avoid pre-baked type bits from LEA.
+            if (pointerDepth > 0) {
+              // Pointer variable: store as DWORD (handle is 24-bit)
+              this.asm.push(`PUSH_W ${addr}`);
+              this.asm.push('PUSH_D 0x800000');
+              this.asm.push('OR');
+              this.asm.push('PUSH_D 0x40000');
+              this.asm.push('OR');
+            } else {
+              // Normal variable: use LEA to get address
+              const leaOp = token === 'char' ? 'LEA_L_B' : (token === 'int' ? 'LEA_L_W' : 'LEA_L_D');
+              this.asm.push(`${leaOp} ${addr}`);
+              // Add handle type encoding (LEA already includes the base type, just OR won't add duplicates
+              // since LEA_L_B=0x10000, LEA_L_W=0x20000, LEA_L_D=0x40000 - OR with same value is idempotent)
+              let handleType = '0x10000';
+              if (token === 'int') handleType = '0x20000';
+              else if (token === 'long' || token === 'addr') handleType = '0x40000';
+              this.asm.push(`PUSH_D ${handleType}`);
+              this.asm.push('OR');
+            }
+            this.asm.push('SWAP');
+            this.asm.push('STORE');
+            this.asm.push('POP');
         } else {
           if (size === 0) throw new Error(`Array size required for ${name}`);
           this.locals.set(name, { offset: this.localOffset, type: token, size, pointerDepth });
@@ -672,6 +705,114 @@ export class LavaXCompiler {
       this.breakLabels.pop();
       this.asm.push(`JMP ${labelStart}`);
       this.asm.push(`${labelEnd}:`);
+    } else if (token === 'do') {
+      this.parseToken();
+      const labelStart = `L_DO_${this.labelCount++}`;
+      const labelEnd = `L_DOEND_${this.labelCount++}`;
+      this.asm.push(`${labelStart}:`);
+      this.breakLabels.push(labelEnd);
+      this.parseInnerStatement();
+      this.breakLabels.pop();
+      this.expect('while');
+      this.expect('(');
+      this.parseExpression();
+      this.expect(')');
+      this.expect(';');
+      this.asm.push(`JNZ ${labelStart}`);
+      this.asm.push(`${labelEnd}:`);
+    } else if (token === 'switch') {
+      this.parseToken();
+      this.expect('(');
+      this.parseExpression();
+      this.expect(')');
+      this.expect('{');
+      // switch expression is on stack
+      const labelEnd = `L_SWEND_${this.labelCount++}`;
+      this.breakLabels.push(labelEnd);
+      // Parse case labels and body
+      // Strategy: collect all case values and generate dispatch code
+      // Each case: DUP, PUSH_B caseVal, EQ, JNZ caseLabel
+      // After all cases: JMP default/end
+      const caseLabels: { val: number | null, label: string }[] = [];
+      const caseStmts: { label: string, stmts: string[] }[] = [];
+      // Parse all case/default blocks
+      while (true) {
+        this.skipWhitespace();
+        if (this.pos >= this.src.length || this.src[this.pos] === '}') break;
+        const nextTok = this.peekToken();
+        if (nextTok === 'case') {
+          this.parseToken(); // consume 'case'
+          // Capture expression until ':'
+          const start = this.pos;
+          while (this.pos < this.src.length && this.src[this.pos] !== ':') this.pos++;
+          const expr = this.src.substring(start, this.pos).trim();
+          this.expect(':');
+          const val = this.evalConstant(expr);
+          const caseLabel = `L_CASE_${this.labelCount++}`;
+          caseLabels.push({ val, label: caseLabel });
+          // Collect statements until next case/default/}
+          const savedAsm = this.asm;
+          this.asm = [];
+          while (true) {
+            this.skipWhitespace();
+            if (this.pos >= this.src.length) break;
+            const peekTok = this.peekToken();
+            if (peekTok === 'case' || peekTok === 'default' || peekTok === 'default:' || peekTok === '}') break;
+            this.parseStatement();
+          }
+          const stmts = this.asm;
+          this.asm = savedAsm;
+          caseStmts.push({ label: caseLabel, stmts });
+        } else if (nextTok === 'default' || nextTok === 'default:') {
+          this.parseToken(); // consume 'default' or 'default:'
+          // If we got 'default' (without ':'), consume the ':' separately
+          if (nextTok === 'default') this.expect(':');
+          const caseLabel = `L_CASE_${this.labelCount++}`;
+          caseLabels.push({ val: null, label: caseLabel }); // null = default
+          const savedAsm = this.asm;
+          this.asm = [];
+          while (true) {
+            this.skipWhitespace();
+            if (this.pos >= this.src.length) break;
+            const peekTok = this.peekToken();
+            if (peekTok === 'case' || peekTok === 'default' || peekTok === 'default:' || peekTok === '}') break;
+            this.parseStatement();
+          }
+          const stmts = this.asm;
+          this.asm = savedAsm;
+          caseStmts.push({ label: caseLabel, stmts });
+        } else {
+          // Unexpected - break
+          break;
+        }
+      }
+      this.expect('}');
+      this.breakLabels.pop();
+      // Emit dispatch code
+      // switch value is on stack, we'll DUP for each comparison
+      for (const c of caseLabels) {
+        if (c.val !== null) {
+          this.asm.push('DUP');
+          this.pushLiteral(c.val);
+          this.asm.push('EQ');
+          this.asm.push(`JNZ ${c.label}`);
+        }
+      }
+      // Check for default case
+      const defaultCase = caseLabels.find(c => c.val === null);
+      if (defaultCase) {
+        this.asm.push(`JMP ${defaultCase.label}`);
+      } else {
+        this.asm.push(`JMP ${labelEnd}`);
+      }
+      // Emit case bodies
+      for (const cs of caseStmts) {
+        this.asm.push(`${cs.label}:`);
+        this.asm.push(...cs.stmts);
+      }
+      // Pop the switch expression value
+      this.asm.push(`${labelEnd}:`);
+      this.asm.push('POP'); // pop the original switch expression value
     } else if (token === 'for') {
       this.parseToken();
       this.expect('(');
@@ -797,6 +938,7 @@ export class LavaXCompiler {
 
     if (variable) {
       const oldPos = this.pos;
+      const oldAsmLen = this.asm.length;
       this.parseToken(); // consume name
       if (this.match('[')) {
         this.parseExpression();
@@ -828,7 +970,10 @@ export class LavaXCompiler {
           if (isLocal) {
             this.pushLiteral(variable.offset);
             this.asm.push('ADD');
-            this.asm.push('LEA_L_PH 0');
+            // Manually build handle: offset | HANDLE_BASE_EBP | handle_type
+            // Do NOT use LEA_L_PH which forces HANDLE_TYPE_BYTE
+            this.asm.push('PUSH_D 0x800000');
+            this.asm.push('OR');
           } else {
             this.pushLiteral(variable.offset);
             this.asm.push('ADD');
@@ -847,25 +992,53 @@ export class LavaXCompiler {
           this.asm.push('STORE');
           return true;
         }
+        // Not an assignment - rollback both pos and asm
         this.pos = oldPos;
+        this.asm.length = oldAsmLen;
       } else {
         const op = this.peekToken();
         const isCompound = op.endsWith('=') && op.length > 1 && !['==', '!=', '<=', '>='].includes(op);
         if (op === '=' || isCompound) {
           this.parseToken(); // consume op
+          
+          // For compound assignment (e.g., i = i + 1):
+          // We need to evaluate the right side expression first, then store
+          // The correct order is:
+          // 1. Parse right side expression (new value)
+          // 2. Get address
+          // 3. SWAP to get [value, addr]
+          // 4. STORE
+          
           const opPrefix = isLocal ? 'LEA_L' : 'LEA_G';
-          const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
+          // Pointer variables store a 24-bit handle (4 bytes), must use D suffix
+          const opSuffix = (variable as any).pointerDepth > 0 ? 'D' :
+            (variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D'));
           if (isCompound) {
             const ldPrefix = isLocal ? 'LD_L' : 'LD_G';
             this.asm.push(`${ldPrefix}_${opSuffix} ${variable.offset}`);
-          }
-          this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
-          if (isCompound) {
             this.parseAssignment();
             this.emitCompoundOp(op);
           } else {
             this.parseAssignment();
           }
+          
+          // Now get the address and prepare for store
+          // For local variables, use PUSH_W to get raw offset + HANDLE_BASE_EBP
+          if (isLocal) {
+            this.asm.push(`PUSH_W ${variable.offset}`);
+            this.asm.push('PUSH_D 0x800000');
+            this.asm.push('OR');
+          } else {
+            this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
+          }
+          // Add handle type encoding
+          let handleType = '0x10000';
+          if ((variable as any).pointerDepth > 0) handleType = '0x40000';
+          else if (variable.type === 'int') handleType = '0x20000';
+          else if (variable.type === 'long' || variable.type === 'addr') handleType = '0x40000';
+          this.asm.push(`PUSH_D ${handleType}`);
+          this.asm.push('OR');
+          this.asm.push('SWAP');
           this.asm.push('STORE');
           return true;
         }
@@ -1044,14 +1217,23 @@ export class LavaXCompiler {
       const variable = this.locals.get(possibleVar) || this.globals.get(possibleVar);
       this.pos = savedPos;
       this.parseUnary();
-      let handleType = '0x10000';
-      if (variable && variable.pointerDepth > 0) {
-        if (variable.type === 'int') handleType = '0x20000';
-        else if (variable.type === 'long' || variable.type === 'addr') handleType = '0x40000';
+      // If the expression is a pointer variable (pointerDepth > 0), the value on the stack
+      // is already a complete handle (HANDLE_BASE_EBP | type | offset), loaded with LD_L_D.
+      // We should NOT OR additional type bits - just call LD_IND directly.
+      // If the pointer came from an expression (not a direct variable), we may need type bits.
+      if (variable && (variable as any).pointerDepth > 0) {
+        // The handle already has correct type bits encoded when the pointer was created via &
+        // Just dereference directly
+        this.asm.push('LD_IND');
+      } else {
+        // Fallback: pointer came from a complex expression, add type bits
+        let handleType = '0x10000';
+        if (variable && variable.type === 'int') handleType = '0x20000';
+        else if (variable && (variable.type === 'long' || variable.type === 'addr')) handleType = '0x40000';
+        this.asm.push(`PUSH_D ${handleType}`);
+        this.asm.push('OR');
+        this.asm.push('LD_IND');
       }
-      this.asm.push(`PUSH_D ${handleType}`);
-      this.asm.push('OR');
-      this.asm.push('LD_IND');
       return true;
     } else if (this.match('&')) {
       const token = this.peekToken();
@@ -1074,9 +1256,14 @@ export class LavaXCompiler {
             this.asm.push('ADD');
           }
         } else {
-          const opPrefix = isLocal ? 'LEA_L' : 'LEA_G';
-          const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
-          this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
+          // For &variable, we need the raw offset, not the LEA-encoded address
+          // Use PUSH_W/PUSH_D to push raw offset, then add HANDLE_BASE_EBP for local vars
+          const op = isLocal ? 'PUSH_W' : 'PUSH_W';
+          this.asm.push(`${op} ${variable.offset}`);
+          if (isLocal) {
+            this.asm.push('PUSH_D 0x800000');
+            this.asm.push('OR');
+          }
         }
         return true;
       } else {
@@ -1231,7 +1418,10 @@ export class LavaXCompiler {
         this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
       } else {
         const opPrefix = isLocal ? 'LD_L' : 'LD_G';
-        const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
+        // Pointer variables store a full 24-bit handle, must use DWORD (4-byte) load
+        // regardless of the base type (e.g. int* still uses LD_L_D)
+        const opSuffix = (variable as any).pointerDepth > 0 ? 'D' :
+          (variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D'));
         this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
       }
 
