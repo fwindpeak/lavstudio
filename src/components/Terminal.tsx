@@ -12,6 +12,32 @@ interface TerminalProps {
     onLog: (msg: string) => void;
 }
 
+function classifyLog(text: string): 'error' | 'warn' | 'success' | 'output' | 'system' {
+    if (text.startsWith('ERROR') || text.includes('Error') || text.includes('FATAL')) return 'error';
+    if (text.startsWith('Warning') || text.includes('Warning')) return 'warn';
+    if (text.startsWith('Build: Success') || text.startsWith('Assembly: Success') || text.startsWith('Success')) return 'success';
+    if (text.startsWith('Compiling') || text.startsWith('Assembling') || text.startsWith('Build:') ||
+        text.startsWith('Assembly:') || text.startsWith('Decompiler:') || text.startsWith('System:') ||
+        text.startsWith('Source saved')) return 'system';
+    return 'output';
+}
+
+const LOG_COLORS: Record<ReturnType<typeof classifyLog>, string> = {
+    error: 'text-red-400',
+    warn: 'text-yellow-400',
+    success: 'text-green-400',
+    system: 'text-blue-300/80',
+    output: 'text-neutral-200',
+};
+
+const LOG_PREFIXES: Record<ReturnType<typeof classifyLog>, string> = {
+    error: '✗',
+    warn: '⚠',
+    success: '✓',
+    system: '›',
+    output: ' ',
+};
+
 export const Terminal: React.FC<TerminalProps> = ({ logs, onClear, onLog }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -53,14 +79,20 @@ export const Terminal: React.FC<TerminalProps> = ({ logs, onClear, onLog }) => {
                 className="flex-1 p-5 overflow-y-auto font-mono text-[12px] leading-relaxed custom-scrollbar bg-black/20 select-text"
             >
                 <div className="flex flex-col min-h-full">
-                    {logs.map((l, i) => (
-                        <div key={i} className={`py-0.5 flex gap-4 select-text ${l.text.includes('Error') || l.text.startsWith('ERROR') ? 'text-red-400' : 'text-neutral-400'}`}>
-                            <span className="text-neutral-700 shrink-0 font-black select-none">[{l.time}]</span>
-                            <span className="whitespace-pre-wrap break-all select-text flex-1">
-                                {l.text}
-                            </span>
-                        </div>
-                    ))}
+                    {logs.map((l, i) => {
+                        const kind = classifyLog(l.text);
+                        const color = LOG_COLORS[kind];
+                        const prefix = LOG_PREFIXES[kind];
+                        return (
+                            <div key={i} className={`py-0.5 flex gap-2 select-text ${color}`}>
+                                <span className="text-neutral-700 shrink-0 font-black select-none text-[10px] mt-0.5">[{l.time}]</span>
+                                <span className="shrink-0 select-none w-4 text-center">{prefix}</span>
+                                <span className="whitespace-pre-wrap break-all select-text flex-1">
+                                    {l.text}
+                                </span>
+                            </div>
+                        );
+                    })}
                     {logs.length === 0 && <div className="text-neutral-700 italic">Session logs will appear here...</div>}
                 </div>
             </div>

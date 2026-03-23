@@ -27,6 +27,20 @@ interface Variable {
   dimensions?: number[];
 }
 
+interface StructMember {
+  name: string;
+  type: string;
+  offset: number;
+  size: number;
+  pointerDepth: number;
+  dimensions?: number[];
+}
+
+interface StructDef {
+  members: Map<string, StructMember>;
+  totalSize: number;
+}
+
 export class LavaXCompiler {
   private src: string = "";
   private pos: number = 0;
@@ -38,8 +52,10 @@ export class LavaXCompiler {
   private localOffset = 0;
   private functions: Map<string, { params: number, returnType: string }> = new Map();
   private breakLabels: string[] = [];
+  private continueLabels: string[] = [];
   private defines: Map<string, string> = new Map();
   private initializers: string[] = [];
+  private structs: Map<string, StructDef> = new Map();
   private readonly SYSCALLS_WITH_RETURN = new Set([
     'getchar', 'strlen', 'abs', 'rand', 'Inkey', 'GetPoint',
     'isalnum', 'isalpha', 'iscntrl', 'isdigit', 'isgraph',
@@ -105,6 +121,10 @@ export class LavaXCompiler {
     }
   }
 
+  private getLineNumber(pos: number): number {
+    return this.src.substring(0, pos).split('\n').length;
+  }
+
   compile(source: string): string {
     this.src = source;
     this.pos = 0;
@@ -116,6 +136,8 @@ export class LavaXCompiler {
     this.localOffset = 0;
     this.functions = new Map();
     this.breakLabels = [];
+    this.continueLabels = [];
+    this.structs = new Map();
     this.defines = new Map([
       ['NULL', '0'],
       ['TRUE', '1'],
@@ -151,8 +173,36 @@ export class LavaXCompiler {
           continue;
         }
 
-        if (!type || !['int', 'char', 'long', 'void', 'addr'].includes(type)) {
+        if (!type || !['int', 'char', 'long', 'void', 'addr', 'struct', 'typedef'].includes(type)) {
           if (type) this.parseToken(); // Consume unknown top-level or whatever
+          continue;
+        }
+
+        // Handle struct definitions in pre-scan
+        if (type === 'struct') {
+          this.parseToken(); // consume 'struct'
+          const structName = this.parseToken();
+          if (this.match('{')) {
+            this.parseStructDefinition(structName);
+          } else {
+            // struct variable declaration or forward decl - skip
+            while (this.pos < this.src.length && this.src[this.pos] !== ';') this.pos++;
+            if (this.src[this.pos] === ';') this.pos++;
+          }
+          continue;
+        }
+
+        // Handle typedef in pre-scan (basic - skip it)
+        if (type === 'typedef') {
+          this.parseToken(); // consume 'typedef'
+          let depth = 0;
+          while (this.pos < this.src.length) {
+            const c = this.src[this.pos];
+            if (c === '{') depth++;
+            else if (c === '}') depth--;
+            else if (c === ';' && depth === 0) { this.pos++; break; }
+            this.pos++;
+          }
           continue;
         }
         this.parseToken(); // Consume base type
@@ -432,7 +482,53 @@ export class LavaXCompiler {
 
   private parseTopLevel() {
     const type = this.parseToken();
-    if (!type || !['int', 'char', 'long', 'void', 'addr'].includes(type)) return;
+    if (!type) return;
+
+    // Handle struct definition (already pre-scanned, skip the body)
+    if (type === 'struct') {
+      const structName = this.parseToken();
+      if (this.match('{')) {
+        // Skip struct body - already parsed in pre-scan
+        let depth = 1;
+        while (this.pos < this.src.length && depth > 0) {
+          const c = this.src[this.pos];
+          if (c === '{') depth++;
+          else if (c === '}') depth--;
+          this.pos++;
+        }
+        this.match(';');
+      } else {
+        // struct variable declaration at global scope
+        const varName = this.parseToken();
+        const structDef = this.structs.get(structName);
+        if (structDef && varName) {
+          this.globals.set(varName, {
+            offset: this.globalOffset,
+            type: 'struct:' + structName,
+            size: structDef.totalSize,
+            pointerDepth: 0
+          });
+          this.globalOffset += structDef.totalSize;
+        }
+        this.match(';');
+      }
+      return;
+    }
+
+    // Handle typedef - skip
+    if (type === 'typedef') {
+      let depth = 0;
+      while (this.pos < this.src.length) {
+        const c = this.src[this.pos];
+        if (c === '{') depth++;
+        else if (c === '}') depth--;
+        else if (c === ';' && depth === 0) { this.pos++; break; }
+        this.pos++;
+      }
+      return;
+    }
+
+    if (!['int', 'char', 'long', 'void', 'addr'].includes(type)) return;
     while (this.match('*')) { /* consume stars */ }
     const name = this.parseToken();
     if (this.match('(')) {
@@ -532,6 +628,27 @@ export class LavaXCompiler {
     if (token.endsWith(':')) {
       this.parseToken();
       this.asm.push(token);
+      return;
+    }
+
+    if (token === 'struct') {
+      // Local struct variable declaration
+      this.parseToken(); // consume 'struct'
+      const structTypeName = this.parseToken();
+      const structDef = this.structs.get(structTypeName);
+      if (!structDef) throw new Error(`Unknown struct type: ${structTypeName}`);
+      do {
+        const varName = this.parseToken();
+        // Register the local variable with struct type
+        this.locals.set(varName, {
+          offset: this.localOffset,
+          type: 'struct:' + structTypeName,
+          size: structDef.totalSize,
+          pointerDepth: 0
+        });
+        this.localOffset += structDef.totalSize;
+      } while (this.match(','));
+      this.expect(';');
       return;
     }
 
@@ -701,18 +818,24 @@ export class LavaXCompiler {
       this.expect(')');
       this.asm.push(`JZ ${labelEnd}`);
       this.breakLabels.push(labelEnd);
+      this.continueLabels.push(labelStart);
       this.parseInnerStatement();
       this.breakLabels.pop();
+      this.continueLabels.pop();
       this.asm.push(`JMP ${labelStart}`);
       this.asm.push(`${labelEnd}:`);
     } else if (token === 'do') {
       this.parseToken();
       const labelStart = `L_DO_${this.labelCount++}`;
+      const labelContinue = `L_DOCONT_${this.labelCount++}`;
       const labelEnd = `L_DOEND_${this.labelCount++}`;
       this.asm.push(`${labelStart}:`);
       this.breakLabels.push(labelEnd);
+      this.continueLabels.push(labelContinue);
       this.parseInnerStatement();
       this.breakLabels.pop();
+      this.continueLabels.pop();
+      this.asm.push(`${labelContinue}:`);
       this.expect('while');
       this.expect('(');
       this.parseExpression();
@@ -835,8 +958,10 @@ export class LavaXCompiler {
       let stepExprEnd = this.pos;
       this.expect(')');
       this.breakLabels.push(labelEnd);
+      this.continueLabels.push(labelStep);
       this.parseInnerStatement();
       this.breakLabels.pop();
+      this.continueLabels.pop();
       this.asm.push(`${labelStep}:`);
       const savedPos = this.pos;
       this.pos = stepExprStart;
@@ -853,6 +978,11 @@ export class LavaXCompiler {
       this.parseToken();
       if (this.breakLabels.length === 0) throw new Error("break outside of loop");
       this.asm.push(`JMP ${this.breakLabels[this.breakLabels.length - 1]}`);
+      this.expect(';');
+    } else if (token === 'continue') {
+      this.parseToken();
+      if (this.continueLabels.length === 0) throw new Error("continue outside of loop");
+      this.asm.push(`JMP ${this.continueLabels[this.continueLabels.length - 1]}`);
       this.expect(';');
     } else if (token === 'return') {
       this.parseToken();
@@ -940,6 +1070,43 @@ export class LavaXCompiler {
       const oldPos = this.pos;
       const oldAsmLen = this.asm.length;
       this.parseToken(); // consume name
+
+      // Struct member assignment: var.member = expr or var->member = expr
+      if (variable.type.startsWith('struct:') && (this.peekToken() === '.' || this.peekToken() === '->')) {
+        this.parseToken(); // consume '.' or '->'
+        const memberName = this.parseToken();
+        const member = this.resolveStructMember(token!, memberName, isLocal);
+        if (!member) throw new Error(`Unknown member '${memberName}' in struct`);
+        const op = this.peekToken();
+        const isCompound = op.endsWith('=') && op.length > 1 && !['==', '!=', '<=', '>='].includes(op);
+        if (op === '=' || isCompound) {
+          this.parseToken(); // consume op
+          const opSuffix = member.type === 'char' ? 'B' : (member.type === 'int' ? 'W' : 'D');
+          if (isCompound) {
+            const ldPrefix = isLocal ? 'LD_L' : 'LD_G';
+            this.asm.push(`${ldPrefix}_${opSuffix} ${member.offset}`);
+            this.parseAssignment();
+            this.emitCompoundOp(op);
+          } else {
+            this.parseAssignment();
+          }
+          const leaPrefix = isLocal ? 'LEA_L' : 'LEA_G';
+          this.asm.push(`${leaPrefix}_${opSuffix} ${member.offset}`);
+          let handleType = '0x10000';
+          if (member.type === 'int') handleType = '0x20000';
+          else if (member.type === 'long' || member.type === 'addr') handleType = '0x40000';
+          this.asm.push(`PUSH_D ${handleType}`);
+          this.asm.push('OR');
+          this.asm.push('SWAP');
+          this.asm.push('STORE');
+          return true;
+        }
+        // Not an assignment - rollback
+        this.pos = oldPos;
+        this.asm.length = oldAsmLen;
+        return this.parseLogicalOr();
+      }
+
       if (this.match('[')) {
         this.parseExpression();
         this.expect(']');
@@ -1378,6 +1545,18 @@ export class LavaXCompiler {
       const variable = (this.locals.get(token) || this.globals.get(token))!;
       const isLocal = this.locals.has(token);
 
+      // Struct member access: var.member or var->member
+      if (variable.type.startsWith('struct:') && (this.peekToken() === '.' || this.peekToken() === '->')) {
+        this.parseToken(); // consume '.' or '->'
+        const memberName = this.parseToken();
+        const member = this.resolveStructMember(token, memberName, isLocal);
+        if (!member) throw new Error(`Unknown member '${memberName}' in struct`);
+        const opPrefix = isLocal ? 'LD_L' : 'LD_G';
+        const opSuffix = member.type === 'char' ? 'B' : (member.type === 'int' ? 'W' : 'D');
+        this.asm.push(`${opPrefix}_${opSuffix} ${member.offset}`);
+        return true;
+      }
+
       if (this.match('[')) {
         this.parseExpression();
         this.expect(']');
@@ -1532,6 +1711,92 @@ export class LavaXCompiler {
     } else {
       throw new Error(`Unsupported compound operator: ${op} `);
     }
+  }
+
+  /**
+   * Parse a struct definition: reads member declarations inside { }
+   * and registers the struct definition in this.structs.
+   * Assumes the opening '{' has already been consumed.
+   */
+  private parseStructDefinition(structName: string): void {
+    const members = new Map<string, StructMember>();
+    let offset = 0;
+
+    while (this.pos < this.src.length) {
+      this.skipWhitespace();
+      if (this.src[this.pos] === '}') {
+        this.pos++;
+        break;
+      }
+      const memberType = this.parseToken();
+      if (!memberType || !['int', 'char', 'long', 'void', 'addr'].includes(memberType)) {
+        // Skip unknown - advance to semicolon
+        while (this.pos < this.src.length && this.src[this.pos] !== ';' && this.src[this.pos] !== '}') this.pos++;
+        if (this.src[this.pos] === ';') this.pos++;
+        continue;
+      }
+      const elementSize = memberType === 'char' ? 1 : 4;
+      do {
+        let pointerDepth = 0;
+        while (this.match('*')) pointerDepth++;
+        const memberName = this.parseToken();
+        let size = 1;
+        const dimensions: number[] = [];
+        while (this.match('[')) {
+          const start = this.pos;
+          let depth = 0;
+          while (this.pos < this.src.length) {
+            const c = this.src[this.pos];
+            if (c === ']' && depth === 0) break;
+            if (c === '[') depth++;
+            if (c === ']') depth--;
+            this.pos++;
+          }
+          const expr = this.src.substring(start, this.pos);
+          this.expect(']');
+          const dim = this.evalConstant(expr);
+          if (!isNaN(dim)) {
+            dimensions.push(dim);
+            size *= dim;
+          }
+        }
+        members.set(memberName, {
+          name: memberName,
+          type: memberType,
+          offset,
+          size,
+          pointerDepth,
+          dimensions: dimensions.length > 0 ? dimensions : undefined
+        });
+        // Align to element size (simple alignment)
+        const memberBytes = size * elementSize;
+        offset += memberBytes;
+      } while (this.match(','));
+      this.expect(';');
+    }
+    this.match(';'); // optional trailing semicolon after }
+
+    this.structs.set(structName, { members, totalSize: offset });
+  }
+
+  /**
+   * Resolve struct member access: variable.member or variable->member
+   * Returns the member's info for use in load/store operations.
+   */
+  private resolveStructMember(varName: string, memberName: string, isLocal: boolean): { offset: number, type: string, pointerDepth: number } | null {
+    const variable = isLocal ? this.locals.get(varName) : this.globals.get(varName);
+    if (!variable) return null;
+    const structTypeName = variable.type.startsWith('struct:') ? variable.type.substring(7) : null;
+    if (!structTypeName) return null;
+    const structDef = this.structs.get(structTypeName);
+    if (!structDef) return null;
+    const member = structDef.members.get(memberName);
+    if (!member) return null;
+    return {
+      offset: variable.offset + member.offset,
+      type: member.type,
+      pointerDepth: member.pointerDepth
+    };
   }
 }
 

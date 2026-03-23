@@ -212,8 +212,10 @@ export class VirtualFileSystem {
     public openFile(path: string, mode: string): number {
         const resolved = this.resolvePath(path);
         const fileData = this.files.get(resolved);
+        // 文件不存在时返回 -1 (错误码)，而不是返回空文件 handle=0
         if (!fileData && !mode.includes('w')) {
-            return 0;
+            console.log(`[VFS] openFile("${path}") failed: file not found`);
+            return -1;
         }
         const handle = this.nextHandle++;
         this.fileHandles.set(handle, {

@@ -73,6 +73,42 @@ void main()
  SetPalette(205, 2, palette);
  getchar();
 }`
+  },
+  {
+    name: 'struct_demo.c',
+    content: `struct Point {
+  int x;
+  int y;
+};
+
+struct Point p;
+
+void main() {
+  int i;
+  p.x = 10;
+  p.y = 20;
+  printf("Point: %d, %d\\n", p.x, p.y);
+
+  // continue in for loop
+  for (i = 0; i < 5; i++) {
+    if (i == 2) continue;
+    printf("i=%d\\n", i);
+  }
+
+  // switch demo
+  int key = 2;
+  switch (key) {
+    case 1:
+      printf("one\\n");
+      break;
+    case 2:
+      printf("two\\n");
+      break;
+    default:
+      printf("other\\n");
+  }
+  getchar();
+}`
   }
 ];
 

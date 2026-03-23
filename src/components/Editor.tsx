@@ -32,7 +32,7 @@ function highlightCode(code: string) {
     result = result.replace(/"[^"]*"/g, (match) => createToken(match, 'text-green-400'));
 
     // Match keywords
-    result = result.replace(/\b(int|char|long|void|if|else|while|for|return|goto|break|continue|addr)\b/g, (match) => createToken(match, 'text-purple-400 font-bold'));
+    result = result.replace(/\b(int|char|long|void|if|else|while|for|do|return|goto|break|continue|addr|struct|typedef|switch|case|default)\b/g, (match) => createToken(match, 'text-purple-400 font-bold'));
 
     // Match system functions
     result = result.replace(/\b(putchar|getchar|printf|strcpy|strlen|SetScreen|UpdateLCD|Delay|WriteBlock|Refresh|TextOut|Block|Rectangle|Exit|ClearScreen|abs|rand|srand|Locate|Inkey|Point|GetPoint|Line|Box|Circle|Ellipse|Beep|isalnum|isalpha|iscntrl|isdigit|isgraph|islower|isprint|ispunct|isspace|isupper|isxdigit|strcat|strchr|strcmp|strstr|tolower|toupper|memset|memcpy|fopen|fclose|fread|fwrite|fseek|ftell|feof|rewind|fgetc|fputc|sprintf|MakeDir|DeleteFile|Getms|CheckKey|memmove|Sin|Cos|FillArea|SetGraphMode|SetBgColor|SetFgColor|GetTime|Math)\b/g, (match) => createToken(match, 'text-blue-300'));
