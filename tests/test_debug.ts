@@ -3,9 +3,6 @@ import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
 import { LavaXVM } from '../src/vm';
 import { LocalStorageDriver } from '../src/vm/VFSStorageDriver';
 
-// Patch STORE to add debug
-const originalVm = require('./src/vm').LavaXVM;
-
 async function main() {
   const vfsDriver = new LocalStorageDriver();
   const compiler = new LavaXCompiler();
@@ -31,21 +28,19 @@ async function main() {
   const bin = assembler.assemble(asm);
   vm.load(bin);
 
-  // Override STORE to debug
+  // Override STORE to debug (first call only)
   const origStore = (vm as any).ops[0x35];
   (vm as any).ops[0x35] = function() {
     const sp = (vm as any).sp;
     const stk = (vm as any).stk;
-    const val = stk[--sp];
-    const addrEnc = stk[sp - 1];
+    const val = stk[sp - 1];
+    const addrEnc = stk[sp - 2];
     console.log(`[STORE] val=${val} (0x${val.toString(16)}), addrEnc=${addrEnc} (0x${addrEnc.toString(16)})`);
-    console.log(`[STORE] type bits: ${(addrEnc & 0x70000).toString(16)}`);
-    console.log(`[STORE] resolved addr: ${(addrEnc & 0xFFFF).toString(16)}`);
-    // Call original
-    const ops = (vm as any).ops;
-    ops[0x35] = origStore;
-    ops[0x35].call(vm);
-    ops[0x35] = function() { console.log("[STORE] - already called"); };
+    console.log(`[STORE] type bits: 0x${(addrEnc & 0x70000).toString(16)}`);
+    console.log(`[STORE] resolved addr: 0x${(addrEnc & 0xFFFF).toString(16)}`);
+    // Restore and call original
+    (vm as any).ops[0x35] = origStore;
+    origStore();
   };
 
   vm.onLog = (msg) => console.log(msg);

@@ -37,7 +37,7 @@ async function testRecursion() {
     console.log("Starting VM...");
     vm.load(bin);
     await vm.run();
-    console.log("Finished. Final ESP:", vm.esp);
+    console.log("Finished. Final SP:", vm.sp);
 }
 
 testRecursion().catch(e => console.error(e));

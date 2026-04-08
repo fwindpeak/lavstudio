@@ -6,9 +6,9 @@
 export interface LavHeader {
     magic: string;             // 0x00: 魔数 'LAV'
     version: number;           // 0x03: 版本号
-    memFlag: number;           // 0x05: 内存限制标记
-    arrayInitSpace: number;    // 0x06: 数组初始化空间 (u16)
-    varSpaceAddress: number;   // 0x08: 变量总空间入口地址 (u16)
+    strMask: number;           // 0x05: 字符串 XOR 掩码 (0=无掩码)
+    arrayInitSpace: number;    // 0x06: LOADALL 数据段大小 (u16)
+    entryPoint: number;        // 0x08: 程序入口地址 (u24, 小端序)
 }
 
 /** 操作数类型枚举，用于驱动解码器抓取后续字节 */
@@ -275,12 +275,12 @@ export class LavParser {
 
         const version = reader.readU8();       // 0x03
         reader.skip(1);                        // 0x04 填充
-        const memFlag = reader.readU8();       // 0x05
+        const strMask = reader.readU8();       // 0x05: 字符串掩码
         const arrayInitSpace = reader.readU16(); // 0x06-0x07
-        const varSpaceAddress = reader.readU16();// 0x08-0x09
-        reader.skip(6);                        // 0x0A-0x0F 填充
+        const entryPoint = reader.readU24();   // 0x08-0x0A: 入口地址 (24位)
+        reader.skip(5);                        // 0x0B-0x0F 填充
 
-        return { magic, version, memFlag, arrayInitSpace, varSpaceAddress };
+        return { magic, version, strMask, arrayInitSpace, entryPoint };
     }
 
     private static parseNextInstruction(reader: BinaryReader): LavInstruction | null {

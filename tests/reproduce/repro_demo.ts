@@ -1,7 +1,7 @@
 
-import { LavaXCompiler } from '../src/compiler';
-import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
-import { LavaXVM } from '../src/vm';
+import { LavaXCompiler } from '../../src/compiler';
+import { LavaXAssembler } from '../../src/compiler/LavaXAssembler';
+import { LavaXVM } from '../../src/vm';
 
 async function main() {
     const compiler = new LavaXCompiler();
@@ -26,7 +26,7 @@ async function main() {
     vm.onLog = (msg) => process.stdout.write(msg);
     vm.load(bin);
     await vm.run();
-    console.log("\nFinished. ESP:", vm.esp);
+    console.log("\nFinished. SP:", vm.sp);
 }
 
 main().catch(console.error);

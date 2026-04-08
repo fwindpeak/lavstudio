@@ -10,8 +10,8 @@ export class VirtualFileSystem {
     public ready: Promise<void>;
     private driver: VFSStorageDriver;
 
-    constructor(driver: VFSStorageDriver = new IndexedDBDriver()) {
-        this.driver = driver;
+    constructor(driver?: VFSStorageDriver) {
+        this.driver = driver || new LocalStorageDriver();
         this.ready = this.init();
     }
 

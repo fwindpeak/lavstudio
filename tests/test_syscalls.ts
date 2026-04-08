@@ -13,7 +13,7 @@ async function test() {
     const vm = new LavaXVM(new MockStorageDriver() as any);
     // Header + Refresh (0x89) + EXIT (0x40)
     const bytecode = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         SystemOp.Refresh,
         Op.EXIT
     ]);
@@ -40,7 +40,7 @@ async function test() {
     // strlen
     // EXIT
     const bytecode2 = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         Op.PUSH_STR, 0x61, 0x62, 0x63, 0x00,
         SystemOp.strlen,
         Op.EXIT
@@ -64,7 +64,7 @@ async function runRepro() {
 
     console.log("\n--- Repro Test 1: Refresh (returns 0) + POP ---");
     const code1 = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         SystemOp.Refresh,
         Op.POP,
         Op.EXIT
@@ -75,7 +75,7 @@ async function runRepro() {
 
     console.log("\n--- Repro Test 2: sprintf Corruption ---");
     const code2 = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         Op.PUSH_D, 0x00, 0x10, 0x00, 0x00, // dest
         Op.PUSH_D, 0x00, 0x20, 0x00, 0x00, // fmt
         Op.PUSH_D, 123, 0, 0, 0,           // arg

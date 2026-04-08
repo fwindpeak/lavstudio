@@ -16,7 +16,7 @@ async function runTest() {
     console.log("--- Test 1: Void Syscall + POP ---");
     // Refresh (returns void) + POP (compiler generated) + EXIT
     const bytecode1 = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         SystemOp.Refresh,
         Op.POP,
         Op.EXIT
@@ -35,7 +35,7 @@ async function runTest() {
     // dest=0x1000, fmt=0x2000, arg=123, count=3
     // PUSH_D 0x1000, PUSH_D 0x2000, PUSH_D 123, PUSH_B 3, sprintf, POP, EXIT
     const bytecode2 = new Uint8Array([
-        0x4C, 0x41, 0x56, 18, 0, 0x74, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
+        0x4C, 0x41, 0x56, 18, 0, 0x00, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0,
         Op.PUSH_D, 0x00, 0x10, 0x00, 0x00,
         Op.PUSH_D, 0x00, 0x20, 0x00, 0x00,
         Op.PUSH_D, 123, 0, 0, 0,

@@ -1609,13 +1609,13 @@ export class LavaXCompiler {
         const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
         this.asm.pop();
         this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
-        this.asm.push('INC_POST');
+        this.asm.push('INC_POS');
       } else if (this.match('--')) {
         const opPrefix = isLocal ? 'LEA_L' : 'LEA_G';
         const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
         this.asm.pop();
         this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
-        this.asm.push('DEC_POST');
+        this.asm.push('DEC_POS');
       }
       return true;
     } else {
