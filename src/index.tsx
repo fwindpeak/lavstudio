@@ -4,7 +4,7 @@ import './index.css';
 import { createRoot } from 'react-dom/client';
 import {
   Play, Square, FileCode, Monitor, FolderOpen, Terminal as TerminalIcon,
-  Settings, KeyRound, Save, Download, Trash2, Cpu, Braces, Binary, SearchCode, Zap, Bug
+  Settings, KeyRound, Save, Download, Trash2, Cpu, Braces, Binary, SearchCode, Zap, Bug, Globe
 } from 'lucide-react';
 import { FileManager } from './components/FileManager';
 import { Terminal as LavaTerminal } from './components/Terminal';
@@ -13,6 +13,7 @@ import { Editor } from './components/Editor';
 import { Device } from './components/Device';
 import { LavaXDecompiler } from './decompiler';
 import { DialogProvider } from './components/dialogs/DialogContext';
+import { I18nProvider, useI18n, type Language } from './i18n';
 import iconv from 'iconv-lite';
 import { Buffer } from 'buffer';
 
@@ -186,6 +187,15 @@ export function App() {
   const [viewMode, setViewMode] = useState<'editor' | 'asm' | 'hex' | 'vfs'>('editor');
   const [rightTab, setRightTab] = useState<'emulator' | 'files'>('emulator');
   const [debugMode, setDebugMode] = useState(false);
+  const [mobileView, setMobileView] = useState<'editor' | 'emulator' | 'files'>('editor');
+  const { t, language, setLanguage } = useI18n();
+  const [showLangMenu, setShowLangMenu] = useState(false);
+
+  const switchMobileView = (view: 'editor' | 'emulator' | 'files') => {
+    setMobileView(view);
+    if (view === 'emulator') setRightTab('emulator');
+    else if (view === 'files') setRightTab('files');
+  };
 
   useEffect(() => {
     localStorage.setItem('lavax_tabs', JSON.stringify(tabs.map(t => ({ ...t, bin: undefined })))); // Don't save large binaries to localstorage
@@ -253,7 +263,7 @@ export function App() {
   const handleRun = async () => {
     const bin = build();
     if (bin) {
-      setRightTab('emulator');
+      switchMobileView('emulator');
       await run(bin);
     }
   };
@@ -276,26 +286,28 @@ export function App() {
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0c] text-slate-100 font-sans selection:bg-purple-500/30 overflow-hidden">
       {/* Header */}
-      <header className="h-16 border-b border-white/5 bg-black/40 backdrop-blur-xl flex items-center justify-between px-6 z-10 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <Cpu className="w-6 h-6 text-white" />
+      <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl flex flex-wrap items-center justify-between px-3 md:px-6 z-10 shrink-0 gap-2 py-2 md:py-0 md:h-16">
+        {/* Logo */}
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
+            <Cpu className="w-5 h-5 md:w-6 md:h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-              LavStudio <span className="text-xs font-mono text-purple-400/80 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 ml-1">v0x12</span>
+            <h1 className="text-base md:text-xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
+              {t('appName')} <span className="text-xs font-mono text-purple-400/80 px-1.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 ml-1">{t('appVersion')}</span>
             </h1>
-            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mt-1">LavaX VM Integrated Environment</p>
+            <p className="hidden md:block text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mt-1">{t('appSubtitle')}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Desktop: build controls */}
+        <div className="hidden md:flex items-center gap-3">
           <div className="relative">
             <button
               onClick={() => setShowExamples(!showExamples)}
               className="text-[11px] font-bold text-neutral-400 hover:text-white px-3 py-2 rounded-lg border border-white/5 bg-white/5 transition-all flex items-center gap-2"
             >
-              <FileCode size={14} /> EXAMPLES
+              <FileCode size={14} /> {t('examples')}
             </button>
             {showExamples && (
               <div className="absolute top-full left-0 mt-2 w-48 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 py-2 overflow-hidden">
@@ -316,59 +328,124 @@ export function App() {
             <button
               onClick={build}
               className="px-4 py-2 text-[11px] font-black uppercase tracking-widest text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all flex items-center gap-2"
-              title="Compile Source to Assembly & Binary"
             >
-              <Zap size={14} className="fill-current" /> BUILD
+              <Zap size={14} className="fill-current" /> {t('build')}
             </button>
             <div className="w-px h-4 bg-white/10 mx-1"></div>
             <button
               onClick={assemble}
               className="px-4 py-2 text-[11px] font-black uppercase tracking-widest text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-all flex items-center gap-2"
-              title="Assemble Assembly to Binary"
             >
-              <Binary size={14} /> ASSEMBLE
+              <Binary size={14} /> {t('assemble')}
             </button>
             <div className="w-px h-4 bg-white/10 mx-1"></div>
             <button
               onClick={() => handleDecompile()}
               className="px-4 py-2 text-[11px] font-black uppercase tracking-widest text-amber-400 hover:bg-amber-400/10 rounded-lg transition-all flex items-center gap-2"
-              title="Decompile Binary back to Source & Assembly"
             >
-              <SearchCode size={14} /> DECOMPILE
+              <SearchCode size={14} /> {t('decompile')}
             </button>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2 ml-2">
-            {!running ? (
-              <button
-                onClick={handleRun}
-                className="flex items-center gap-2 px-6 py-2 bg-white text-black rounded-xl font-bold hover:bg-slate-200 active:scale-95 transition-all shadow-lg shadow-white/10 group"
-              >
-                <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" /> START
-              </button>
-            ) : (
-              <button
-                onClick={stop}
-                className="flex items-center gap-2 px-6 py-2 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 active:scale-95 transition-all shadow-lg shadow-red-500/20"
-              >
-                <Square className="w-4 h-4 fill-current animate-pulse" /> STOP
-              </button>
-            )}
+        {/* Run/Stop + Debug + Language */}
+        <div className="flex items-center gap-2">
+          {!running ? (
             <button
-              onClick={() => setDebugMode(!debugMode)}
-              className={`p-2 rounded-xl border transition-all ${debugMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5 border-white/5'}`}
-              title="Toggle Debug Mode"
+              onClick={handleRun}
+              className="flex items-center gap-1.5 px-4 md:px-6 py-2 bg-white text-black rounded-xl font-bold hover:bg-slate-200 active:scale-95 transition-all shadow-lg shadow-white/10 group text-sm md:text-base"
             >
-              <Bug className="w-5 h-5" />
+              <Play className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current group-hover:scale-110 transition-transform" /> {t('start')}
             </button>
+          ) : (
+            <button
+              onClick={stop}
+              className="flex items-center gap-1.5 px-4 md:px-6 py-2 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 active:scale-95 transition-all shadow-lg shadow-red-500/20 text-sm md:text-base"
+            >
+              <Square className="w-3.5 h-3.5 md:w-4 md:h-4 fill-current animate-pulse" /> {t('stop')}
+            </button>
+          )}
+          <button
+            onClick={() => setDebugMode(!debugMode)}
+            className={`p-2 rounded-xl border transition-all ${debugMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5 border-white/5'}`}
+            title={t('debugMode')}
+          >
+            <Bug className="w-4 h-4 md:w-5 md:h-5" />
+          </button>
+
+          {/* Language switcher */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLangMenu(!showLangMenu)}
+              className="p-2 rounded-xl border border-white/5 bg-white/5 text-slate-400 hover:text-white transition-all"
+              title={t('language')}
+            >
+              <Globe className="w-4 h-4 md:w-5 md:h-5" />
+            </button>
+            {showLangMenu && (
+              <div className="absolute top-full right-0 mt-2 w-36 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 py-2 overflow-hidden">
+                {(['en', 'zh-CN'] as Language[]).map(lang => (
+                  <button
+                    key={lang}
+                    onClick={() => { setLanguage(lang); setShowLangMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-[11px] transition-colors ${language === lang ? 'text-purple-400 bg-purple-500/10' : 'text-neutral-400 hover:text-white hover:bg-white/5'}`}
+                  >
+                    {lang === 'en' ? 'English' : '简体中文'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </header>
 
+      {/* Mobile action toolbar */}
+      <div className="md:hidden border-b border-white/5 bg-black/40 flex items-center px-3 py-1.5 gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setShowExamples(!showExamples)}
+            className="text-[10px] font-bold text-neutral-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-white/5 bg-white/5 transition-all flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <FileCode size={12} /> {t('examples')}
+          </button>
+          {showExamples && (
+            <div className="absolute top-full left-0 mt-2 w-48 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 py-2 overflow-hidden">
+              {EXAMPLES.map((ex, i) => (
+                <button
+                  key={i}
+                  onClick={() => loadExample(ex)}
+                  className="w-full text-left px-4 py-2 text-[11px] text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  {ex.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={build}
+          className="text-[10px] font-black uppercase text-blue-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+        >
+          <Zap size={12} className="fill-current" /> {t('build')}
+        </button>
+        <button
+          onClick={assemble}
+          className="text-[10px] font-black uppercase text-emerald-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+        >
+          <Binary size={12} /> {t('assemble')}
+        </button>
+        <button
+          onClick={() => handleDecompile()}
+          className="text-[10px] font-black uppercase text-amber-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+        >
+          <SearchCode size={12} /> {t('decompile')}
+        </button>
+      </div>
+
       {/* Main Content Layout */}
       <main className="flex-1 flex overflow-hidden">
         {/* Left Panel: Editor & Tabs */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-white/5">
+        <div className={`flex-col min-w-0 border-r border-white/5 flex-1 ${mobileView !== 'editor' ? 'hidden md:flex' : 'flex'}`}>
           {/* Tab Bar */}
           <div className="h-10 bg-black/40 border-b border-white/5 flex items-center px-4 gap-1 overflow-x-auto no-scrollbar">
             {tabs.map(tab => (
@@ -406,7 +483,7 @@ export function App() {
             <button
               onClick={addTab}
               className="px-4 h-full text-neutral-500 hover:text-white transition-all flex items-center"
-              title="New Tab"
+              title={t('newTab')}
             >
               <Zap size={14} />
             </button>
@@ -415,27 +492,27 @@ export function App() {
           {/* Editor Options Bar */}
           <div className="h-10 border-b border-white/5 bg-black/20 flex items-center px-4 justify-between">
             <div className="flex items-center gap-1">
-              <button onClick={() => setViewMode('editor')} className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'editor' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
-                Source
+              <button onClick={() => setViewMode('editor')} className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'editor' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                {t('source')}
               </button>
-              <button onClick={() => setViewMode('asm')} className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'asm' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
-                Assembly
+              <button onClick={() => setViewMode('asm')} className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'asm' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                {t('assembly')}
               </button>
-              <button onClick={() => setViewMode('hex')} className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'hex' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
-                Binary
+              <button onClick={() => setViewMode('hex')} className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'hex' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                {t('binary')}
               </button>
             </div>
 
             <button
               onClick={saveToVFS}
-              className="text-[10px] font-black text-purple-400/80 hover:text-purple-300 px-3 py-1 rounded-lg border border-purple-500/10 bg-purple-500/5 transition-all flex items-center gap-2"
+              className="text-[10px] font-black text-purple-400/80 hover:text-purple-300 px-2 md:px-3 py-1 rounded-lg border border-purple-500/10 bg-purple-500/5 transition-all flex items-center gap-1.5"
             >
-              <Save size={12} /> SAVE TO VFS
+              <Save size={12} /> {t('saveToVFS')}
             </button>
           </div>
 
           {/* Editor Content Area */}
-          <div className="flex-1 overflow-hidden p-6 relative">
+          <div className="flex-1 overflow-hidden p-3 md:p-6 relative">
             {viewMode === 'editor' && (
               <Editor
                 code={code}
@@ -452,7 +529,7 @@ export function App() {
             )}
             {viewMode === 'hex' && (
               <div className="h-full overflow-auto bg-black/40 border border-white/10 rounded-xl p-6 font-mono text-[12px] custom-scrollbar">
-                {(!activeTab?.bin || activeTab.bin.length === 0) ? <div className="text-slate-500 italic p-10 text-center uppercase tracking-widest font-black opacity-30">No binary data available</div> :
+                {(!activeTab?.bin || activeTab.bin.length === 0) ? <div className="text-slate-500 italic p-10 text-center uppercase tracking-widest font-black opacity-30">{t('noBinaryData')}</div> :
                   <div className="grid grid-cols-[5rem_repeat(16,2.2rem)_1fr] gap-x-1 gap-y-1.5">
                     <span className="text-slate-600 font-black">OFFSET</span>
                     {[...Array(16)].map((_, i) => <span key={i} className="text-slate-500 font-black text-center">{i.toString(16).toUpperCase()}</span>)}
@@ -474,13 +551,13 @@ export function App() {
           </div>
 
           {/* Bottom Console */}
-          <div className="h-64 border-t border-white/5 flex flex-col overflow-hidden">
+          <div className="h-48 md:h-64 border-t border-white/5 flex flex-col overflow-hidden">
             <div className="h-10 bg-black/40 border-b border-white/5 flex items-center px-6 justify-between shrink-0">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">
-                <TerminalIcon size={12} /> System Console
+                <TerminalIcon size={12} /> {t('systemConsole')}
               </div>
               <button onClick={clearLogs} className="text-[10px] font-black text-white/20 hover:text-red-400 transition-colors uppercase tracking-widest">
-                Clear
+                {t('clear')}
               </button>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">
@@ -490,18 +567,18 @@ export function App() {
         </div>
 
         {/* Right Panel: Device & VFS */}
-        <div className="w-[500px] flex flex-col bg-black/20 shrink-0">
+        <div className={`flex-col bg-black/20 ${mobileView === 'editor' ? 'hidden md:flex' : 'flex'} w-full md:w-[500px] md:shrink-0`}>
           {/* Sidebar Tabs */}
           <div className="h-12 border-b border-white/5 bg-black/20 flex items-center px-4 gap-1">
-            <button onClick={() => setRightTab('emulator')} className={`flex-1 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${rightTab === 'emulator' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
-              Hardware
+            <button onClick={() => switchMobileView('emulator')} className={`flex-1 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${rightTab === 'emulator' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
+              {t('hardware')}
             </button>
-            <button onClick={() => setRightTab('files')} className={`flex-1 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${rightTab === 'files' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
-              FileSystem
+            <button onClick={() => switchMobileView('files')} className={`flex-1 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${rightTab === 'files' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
+              {t('fileSystem')}
             </button>
           </div>
 
-          <div className="flex-1 overflow-auto p-8 flex flex-col relative custom-scrollbar">
+          <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col relative custom-scrollbar">
             {rightTab === 'emulator' ? (
               <Device
                 screen={screen}
@@ -515,31 +592,60 @@ export function App() {
                 vm={vm}
                 onRunLav={async (data) => {
                   setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, bin: data } : t));
-                  setRightTab('emulator');
+                  switchMobileView('emulator');
                   await run(data);
                 }}
                 onDecompileLav={handleDecompile}
-                onOpenFile={handleOpenFileFromVFS}
+                onOpenFile={(path, content) => {
+                  handleOpenFileFromVFS(path, content);
+                  switchMobileView('editor');
+                }}
               />
             )}
           </div>
         </div>
       </main>
 
-      <footer className="h-10 border-t border-white/5 bg-black/80 px-8 flex items-center justify-between text-[10px] text-slate-500 font-mono tracking-wider">
+      {/* Desktop footer */}
+      <footer className="hidden md:flex h-10 border-t border-white/5 bg-black/80 px-8 items-center justify-between text-[10px] text-slate-500 font-mono tracking-wider">
         <div className="flex gap-8">
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-neutral-700'}`}></div>
-            {running ? 'SYSTEM RUNNING' : 'SYSTEM IDLE'}
+            {running ? t('systemRunning') : t('systemIdle')}
           </div>
-          <div>LEN: {code.split('\n').length}</div>
-          <div>MODE: {debugMode ? 'DEBUG' : 'PROD'}</div>
+          <div>{t('lenLabel')}: {code.split('\n').length}</div>
+          <div>{t('modeLabel')}: {debugMode ? t('modeDebug') : t('modeProd')}</div>
         </div>
         <div className="flex gap-6">
           <div className="flex items-center gap-1.5"><Monitor size={12} /> 160x80 MONO</div>
           <div className="flex items-center gap-1.5"><Cpu size={12} /> LAVA CORE v1.2</div>
         </div>
       </footer>
+
+      {/* Mobile bottom navigation */}
+      <nav className="md:hidden h-14 border-t border-white/5 bg-black/80 backdrop-blur-xl flex shrink-0">
+        <button
+          onClick={() => switchMobileView('editor')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'editor' ? 'text-purple-400' : 'text-neutral-500'}`}
+        >
+          <FileCode size={20} />
+          <span className="text-[10px] font-black uppercase tracking-wider">{t('editorTab')}</span>
+        </button>
+        <button
+          onClick={() => switchMobileView('emulator')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'emulator' ? 'text-blue-400' : 'text-neutral-500'}`}
+        >
+          <Monitor size={20} />
+          <span className="text-[10px] font-black uppercase tracking-wider">{t('emulatorTab')}</span>
+        </button>
+        <button
+          onClick={() => switchMobileView('files')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'files' ? 'text-emerald-400' : 'text-neutral-500'}`}
+        >
+          <FolderOpen size={20} />
+          <span className="text-[10px] font-black uppercase tracking-wider">{t('filesTab')}</span>
+        </button>
+      </nav>
     </div>
   );
 }
@@ -549,8 +655,10 @@ if (container) {
   const root = (container as any)._reactRoot || createRoot(container);
   (container as any)._reactRoot = root;
   root.render(
-    <DialogProvider>
-      <App />
-    </DialogProvider>
+    <I18nProvider>
+      <DialogProvider>
+        <App />
+      </DialogProvider>
+    </I18nProvider>
   );
 }

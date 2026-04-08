@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { MessageSquare } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface LogEntry {
     text: string;
@@ -40,6 +41,7 @@ const LOG_PREFIXES: Record<ReturnType<typeof classifyLog>, string> = {
 
 export const Terminal: React.FC<TerminalProps> = ({ logs, onClear, onLog }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
+    const { t } = useI18n();
 
     useEffect(() => {
         if (terminalRef.current) {
@@ -57,20 +59,20 @@ export const Terminal: React.FC<TerminalProps> = ({ logs, onClear, onLog }) => {
         <div className="h-56 bg-neutral-900/80 border-t border-white/5 flex flex-col shrink-0 backdrop-blur-md">
             <div className="px-6 py-2.5 border-b border-white/5 flex items-center justify-between">
                 <span className="text-[11px] font-black text-neutral-500 uppercase flex items-center gap-2.5">
-                    <MessageSquare size={14} /> Integrated Terminal
+                    <MessageSquare size={14} /> {t('integratedTerminal')}
                 </span>
                 <div className="flex gap-4">
                     <button
                         onClick={handleCopyAll}
                         className="text-[10px] font-black text-neutral-600 hover:text-white transition-colors"
                     >
-                        COPY ALL
+                        {t('copyAll')}
                     </button>
                     <button
                         onClick={onClear}
                         className="text-[10px] font-black text-neutral-600 hover:text-white transition-colors"
                     >
-                        CLEAR
+                        {t('clear')}
                     </button>
                 </div>
             </div>
@@ -93,7 +95,7 @@ export const Terminal: React.FC<TerminalProps> = ({ logs, onClear, onLog }) => {
                             </div>
                         );
                     })}
-                    {logs.length === 0 && <div className="text-neutral-700 italic">Session logs will appear here...</div>}
+                    {logs.length === 0 && <div className="text-neutral-700 italic">{t('logsEmpty')}</div>}
                 </div>
             </div>
         </div>

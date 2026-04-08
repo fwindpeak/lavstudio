@@ -1,5 +1,6 @@
 
 import React, { useMemo } from 'react';
+import { useI18n } from '../i18n';
 
 interface EditorProps {
     code: string;
@@ -50,6 +51,7 @@ export const Editor: React.FC<EditorProps> = ({ code, onChange, onScroll }) => {
     const preRef = React.useRef<HTMLPreElement>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const [cursorPosition, setCursorPosition] = React.useState({ line: 1, column: 1 });
+    const { t } = useI18n();
 
     const lineCount = useMemo(() => code.split('\n').length, [code]);
     const highlightedCode = useMemo(() => highlightCode(code), [code]);
@@ -114,7 +116,7 @@ export const Editor: React.FC<EditorProps> = ({ code, onChange, onScroll }) => {
                 </div>
             </div>
             <div className="h-6 bg-white/5 border-t border-white/10 px-4 flex items-center text-white/50 text-xs font-mono">
-                Ln {cursorPosition.line}, Col {cursorPosition.column}
+                {t('lineLabel')} {cursorPosition.line}, {t('columnLabel')} {cursorPosition.column}
             </div>
         </div>
     );

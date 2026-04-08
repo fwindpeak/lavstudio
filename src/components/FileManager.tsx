@@ -3,6 +3,7 @@ import { FolderOpen, Upload, Trash2, FileText, PlayCircle, Download, FolderPlus,
 import { LavaXVM } from '../vm';
 import iconv from 'iconv-lite';
 import { useDialog } from './dialogs/DialogContext';
+import { useI18n } from '../i18n';
 
 export const FileManager: React.FC<{
     vm: LavaXVM,
@@ -15,6 +16,7 @@ export const FileManager: React.FC<{
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dialog = useDialog();
+    const { t } = useI18n();
 
     const refreshFiles = useCallback(() => {
         setAllFiles(vm.vfs.getFiles());
@@ -89,10 +91,10 @@ export const FileManager: React.FC<{
 
     const createFolder = async () => {
         const name = await dialog.prompt({
-            title: 'New Folder',
-            message: 'Enter folder name:',
-            placeholder: 'Folder Name',
-            validation: (val) => !val.trim() ? 'Folder name cannot be empty' : null
+            title: t('newFolder'),
+            message: t('enterFolderName'),
+            placeholder: t('folderNamePlaceholder'),
+            validation: (val) => !val.trim() ? t('folderNameEmpty') : null
         });
 
         if (name) {
@@ -105,9 +107,9 @@ export const FileManager: React.FC<{
     const deleteItem = async (item: typeof items[0]) => {
         if (item.isDir) {
             const confirmed = await dialog.confirm({
-                title: 'Delete Folder',
-                message: `Are you sure you want to delete folder "${item.name}" and all its contents? This action cannot be undone.`,
-                confirmText: 'Delete',
+                title: t('deleteFolderTitle'),
+                message: t('deleteFolderMsg', item.name),
+                confirmText: t('deleteAction'),
                 isDestructive: true
             });
 
@@ -118,9 +120,9 @@ export const FileManager: React.FC<{
             }
         } else {
             const confirmed = await dialog.confirm({
-                title: 'Delete File',
-                message: `Are you sure you want to delete "${item.name}"?`,
-                confirmText: 'Delete',
+                title: t('deleteFileTitle'),
+                message: t('deleteFileMsg', item.name),
+                confirmText: t('deleteAction'),
                 isDestructive: true
             });
 
@@ -158,12 +160,12 @@ export const FileManager: React.FC<{
 
     const renameItem = async (item: typeof items[0]) => {
         const newName = await dialog.prompt({
-            title: 'Rename Item',
-            message: `Enter new name for "${item.name}":`,
+            title: t('renameTitle'),
+            message: t('renameMsg', item.name),
             defaultValue: item.name,
             validation: (val) => {
-                if (!val.trim()) return 'Name cannot be empty';
-                if (val.length > 14) return 'Filename cannot exceed 14 bytes';
+                if (!val.trim()) return t('nameEmpty');
+                if (val.length > 14) return t('nameTooLong');
                 return null;
             }
         });
@@ -201,11 +203,11 @@ export const FileManager: React.FC<{
 
     const breadcrumbs = useMemo(() => {
         const parts = currentPath.split('/').filter(Boolean);
-        return [{ name: 'root', path: '/' }, ...parts.map((p, i) => ({
+        return [{ name: t('rootDir'), path: '/' }, ...parts.map((p, i) => ({
             name: p,
             path: '/' + parts.slice(0, i + 1).join('/')
         }))];
-    }, [currentPath]);
+    }, [currentPath, t]);
 
     return (
         <div
@@ -216,12 +218,12 @@ export const FileManager: React.FC<{
         >
             <div className="flex flex-col bg-neutral-800/80 border-b border-white/5">
                 <div className="flex justify-between items-center p-4">
-                    <h3 className="text-[12px] font-black text-neutral-400 uppercase flex items-center gap-2"><FolderOpen size={16} /> VFS Explorer</h3>
+                    <h3 className="text-[12px] font-black text-neutral-400 uppercase flex items-center gap-2"><FolderOpen size={16} /> {t('vfsExplorer')}</h3>
                     <div className="flex gap-2">
-                        <button onClick={createFolder} className="p-2 hover:bg-white/10 rounded-lg transition-all text-neutral-400 hover:text-white" title="New Folder">
+                        <button onClick={createFolder} className="p-2 hover:bg-white/10 rounded-lg transition-all text-neutral-400 hover:text-white" title={t('newFolder')}>
                             <FolderPlus size={16} />
                         </button>
-                        <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-white/10 rounded-lg transition-all text-blue-400" title="Upload Files">
+                        <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-white/10 rounded-lg transition-all text-blue-400" title={t('uploadFiles')}>
                             <Upload size={16} /><input type="file" ref={fileInputRef} multiple onChange={(e) => handleUpload(e.target.files)} className="hidden" />
                         </button>
                     </div>
@@ -242,7 +244,7 @@ export const FileManager: React.FC<{
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-1.5">
-                {items.length === 0 && <div className="text-center py-16 text-neutral-600 text-[11px] italic">Directory is empty</div>}
+                {items.length === 0 && <div className="text-center py-16 text-neutral-600 text-[11px] italic">{t('directoryEmpty')}</div>}
                 {items.map(item => {
                     const isLav = item.name.toLowerCase().endsWith('.lav');
                     const isText = /\.(c|h|txt|asm|md|s)$/i.test(item.name);
@@ -277,7 +279,7 @@ export const FileManager: React.FC<{
                                 )}
                                 <div className="flex flex-col overflow-hidden">
                                     <span className={`text-neutral-200 truncate font-bold ${isText ? 'cursor-pointer hover:text-purple-300' : ''}`}>{item.name}</span>
-                                    <span className="text-neutral-500 text-[9px] uppercase">{item.isDir ? 'Directory' : `${item.size} Bytes`}</span>
+                                    <span className="text-neutral-500 text-[9px] uppercase">{item.isDir ? t('dirLabel') : `${item.size} Bytes`}</span>
                                 </div>
                             </div>
                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -291,16 +293,16 @@ export const FileManager: React.FC<{
                                             else console.error('[FileManager] Could not get file data for:', item.fullPath);
                                         }}
                                         className="p-1.5 hover:text-emerald-500 transition-colors"
-                                        title="Run"
+                                        title={t('runFile')}
                                     >
                                         <PlayCircle size={16} />
                                     </button>
                                 )}
-                                {!item.isDir && isLav && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onDecompileLav(d); }} className="p-1.5 hover:text-blue-400 transition-colors" title="Decompile"><SearchCode size={16} /></button>}
-                                {!item.isDir && isText && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onOpenFile(item.fullPath, d); }} className="p-1.5 hover:text-purple-400 transition-colors" title="Open in Editor"><FileText size={16} /></button>}
-                                {!item.isDir && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) downloadFile(item.name, d); }} className="p-1.5 hover:text-blue-400 transition-colors" title="Download"><Download size={16} /></button>}
-                                <button onClick={(e) => { e.stopPropagation(); renameItem(item); }} className="p-1.5 hover:text-yellow-400 transition-colors" title="Rename"><Edit size={16} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); deleteItem(item); }} className="p-1.5 hover:text-red-500 transition-colors" title="Delete"><Trash2 size={16} /></button>
+                                {!item.isDir && isLav && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onDecompileLav(d); }} className="p-1.5 hover:text-blue-400 transition-colors" title={t('decompile')}><SearchCode size={16} /></button>}
+                                {!item.isDir && isText && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onOpenFile(item.fullPath, d); }} className="p-1.5 hover:text-purple-400 transition-colors" title={t('openInEditor')}><FileText size={16} /></button>}
+                                {!item.isDir && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) downloadFile(item.name, d); }} className="p-1.5 hover:text-blue-400 transition-colors" title={t('download')}><Download size={16} /></button>}
+                                <button onClick={(e) => { e.stopPropagation(); renameItem(item); }} className="p-1.5 hover:text-yellow-400 transition-colors" title={t('rename')}><Edit size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); deleteItem(item); }} className="p-1.5 hover:text-red-500 transition-colors" title={t('deleteAction')}><Trash2 size={16} /></button>
                             </div>
                         </div>
                     );
