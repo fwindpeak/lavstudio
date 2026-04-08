@@ -65,7 +65,8 @@ export class LavaXCompiler {
     'getc', 'putc', 'MakeDir', 'DeleteFile', 'Getms', 'CheckKey', 'Crc16',
     'ChDir', 'FileList', 'GetWord', 'Sin', 'Cos',
     'FindWord', 'PlayInit', 'PlayFile',
-    'opendir', 'readdir', 'closedir', 'read_uart', 'SetFgColor', 'SetBgColor', 'SetPalette'
+    'opendir', 'readdir', 'closedir', 'read_uart', 'SetFgColor', 'SetBgColor', 'SetPalette',
+    'SetGraphMode'
   ]);
 
 
@@ -89,7 +90,7 @@ export class LavaXCompiler {
     opendir: 1, readdir: 1, rewinddir: 1, closedir: 1, Refresh2: 0,
     open_key: 1, close_key: 0, PlayWordVoice: 1, sysexecset: 1, open_uart: 2,
     close_uart: 0, write_uart: 2, read_uart: 2, RefreshIcon: 0,
-    SetFgColor: 1, SetBgColor: 1, SetPalette: 3
+    SetFgColor: 1, SetBgColor: 1, SetPalette: 3, SetGraphMode: 1
   };
 
   private evalConstant(expr: string): number {
@@ -453,7 +454,7 @@ export class LavaXCompiler {
       return this.src.substring(start, this.pos);
     }
 
-    const special = "(){}[],;=+-*/%><!&|^~#";
+    const special = "(){}[],;=+-*/%><!&|^~#.";
     if (special.includes(this.src[this.pos])) {
       let op = this.src[this.pos++];
       if (op === '<' && this.src[this.pos] === '<') {
@@ -470,6 +471,7 @@ export class LavaXCompiler {
         if (this.src[this.pos] === '=') op += this.src[this.pos++];
       }
       else if ((op === '+' || op === '-') && this.src[this.pos] === op) op += this.src[this.pos++];
+      else if (op === '-' && this.src[this.pos] === '>') op += this.src[this.pos++];
       else if ("+-*/%&|^!".includes(op) && this.src[this.pos] === '=') op += this.src[this.pos++];
       return op;
     }
