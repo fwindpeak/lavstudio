@@ -29,7 +29,7 @@ export function useLavaVM(onLog: (msg: string) => void) {
         vm.onFinished = () => setRunning(false);
 
         // Initial fonts fetch could be handled here or passed in
-        fetch('/fonts.dat')
+        fetch(import.meta.env.BASE_URL + 'fonts.dat')
             .then(r => r.arrayBuffer())
             .then(buf => vm.setInternalFontData(new Uint8Array(buf)))
             .catch(e => log("Error loading fonts: " + e.message));
