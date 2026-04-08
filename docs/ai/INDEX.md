@@ -5,21 +5,22 @@
 ## 📖 文档结构
 
 ```
-docs/
-├── ai/
-│   ├── INDEX.md                    ← 你在这里（入口文档）
-│   ├── README.md                   ← AI 协作指南
-│   ├── QUICK_START.md              ← 快速参考（处理问题时先读）
-│   ├── LAV_FORMAT_REFERENCE.md     ← LAV 格式与指令集详细参考
-│   ├── LAV_CHEATSHEET.md           ← 指令速查表
-│   ├── PROGRAMMING_PATTERNS.md     ← 编程模式指南
-│   ├── LOOP_CLOSURE_TEST.md        ← 闭环测试指南（新！）
-│   ├── MODULE_INTERFACES.md        ← 模块接口规范
-│   ├── KNOWN_ISSUES.md             ← 已知问题追踪
-│   └── TEST_CASES.md               ← 测试用例集
-├── lav_format.md                   ← LAV 字节码格式规范（完整版）
-├── LavaX-docs.md                   ← LavaX 语言手册（完整版）
-└── PROJECT_STATUS.md               ← 项目整体状态
+lavstudio/                          ← 项目根目录
+├── PROJECT_STATUS.md               ← 项目整体状态与路线图
+└── docs/
+    ├── ai/
+    │   ├── INDEX.md                ← 你在这里（入口文档）
+    │   ├── README.md               ← AI 协作指南
+    │   ├── QUICK_START.md          ← 快速参考（处理问题时先读）
+    │   ├── LAV_FORMAT_REFERENCE.md ← LAV 格式与指令集详细参考
+    │   ├── LAV_CHEATSHEET.md       ← 指令速查表
+    │   ├── PROGRAMMING_PATTERNS.md ← 编程模式指南
+    │   ├── LOOP_CLOSURE_TEST.md    ← 闭环测试指南
+    │   ├── MODULE_INTERFACES.md    ← 模块接口规范
+    │   ├── KNOWN_ISSUES.md         ← 已知问题追踪
+    │   └── TEST_CASES.md           ← 测试用例集
+    ├── lav_format.md               ← LAV 字节码格式规范（完整版）
+    └── LavaX-docs.md               ← LavaX 语言手册（完整版）
 ```
 
 ## 🎯 使用指南
@@ -88,7 +89,7 @@ docs/
 
 - **LAV 格式规范完整版**: `docs/lav_format.md`
 - **LavaX 语言手册完整版**: `docs/LavaX-docs.md`
-- **项目状态**: `PROJECT_STATUS.md`
+- **项目状态**: `PROJECT_STATUS.md`（项目根目录）
 
 ## 🎯 当前最高优先级任务
 

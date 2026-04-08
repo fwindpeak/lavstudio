@@ -61,7 +61,7 @@ docs/ai/
 
 - **LAV 格式规范**: `docs/lav_format.md`
 - **LavaX 语言手册**: `docs/LavaX-docs.md`
-- **项目状态**: `PROJECT_STATUS.md`
+- **项目状态**: `PROJECT_STATUS.md`（项目根目录）
 
 ## 🧪 常用命令
 
