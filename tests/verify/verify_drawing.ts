@@ -1,6 +1,6 @@
 
-import { GraphicsEngine } from './src/vm/GraphicsEngine';
-import { GBUF_OFFSET, VRAM_OFFSET, SCREEN_WIDTH, SCREEN_HEIGHT } from './src/types';
+import { GraphicsEngine } from '../../src/vm/GraphicsEngine';
+import { GBUF_OFFSET, VRAM_OFFSET, SCREEN_WIDTH, SCREEN_HEIGHT } from '../../src/types';
 
 function test() {
     const memory = new Uint8Array(1024 * 1024);

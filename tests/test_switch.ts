@@ -1,25 +1,34 @@
-import { LavaXCompiler } from './src/compiler';
-import { LavaXAssembler } from './src/compiler/LavaXAssembler';
-import { LavaXVM } from './src/vm';
-import { LocalStorageDriver } from './src/vm/VFSStorageDriver';
+import { LavaXCompiler } from '../src/compiler';
+import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
+import { LavaXVM } from '../src/vm';
 
 async function main() {
-  const vfsDriver = new LocalStorageDriver();
   const compiler = new LavaXCompiler();
   const assembler = new LavaXAssembler();
-  const vm = new LavaXVM(vfsDriver);
+  const vm = new LavaXVM();
 
-  // Test pointer dereference
+  // Test switch-case
   const source = `
   void main() {
-    int a = 42;
-    int* p = &a;
-    int b = *p;
-    printf("%d\\n", b);
+    int x = 2;
+    switch(x) {
+      case 1:
+        printf("one\\n");
+        break;
+      case 2:
+        printf("two\\n");
+        break;
+      case 3:
+        printf("three\\n");
+        break;
+      default:
+        printf("other\\n");
+    }
+    printf("done\\n");
   }
   `;
 
-  console.log("=== Testing pointer dereference ===\n");
+  console.log("=== Testing switch-case ===\n");
   console.log("Source:\n" + source);
 
   console.log("\n--- Compiling ---");
@@ -35,8 +44,9 @@ async function main() {
   console.log(`Binary size: ${bin.length} bytes`);
 
   console.log("\n--- Running ---");
-  vm.onLog = (msg) => { console.log("[LOG]", msg); };
-  vm.debug = true;
+  let output = "";
+  vm.onLog = (msg) => { output += msg; process.stdout.write(msg); };
+  vm.debug = false;
   vm.load(bin);
   try {
     await vm.run();

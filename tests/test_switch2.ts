@@ -1,7 +1,7 @@
-import { LavaXCompiler } from './src/compiler';
-import { LavaXAssembler } from './src/compiler/LavaXAssembler';
-import { LavaXVM } from './src/vm';
-import { LocalStorageDriver } from './src/vm/VFSStorageDriver';
+import { LavaXCompiler } from '../src/compiler';
+import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
+import { LavaXVM } from '../src/vm';
+import { LocalStorageDriver } from '../src/vm/VFSStorageDriver';
 
 async function main() {
   // Create a localStorage driver to avoid IndexedDB errors in Node.js

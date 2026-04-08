@@ -3,8 +3,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { GraphicsEngine } from './src/vm/GraphicsEngine';
-import { MEMORY_SIZE, VRAM_OFFSET, SCREEN_WIDTH, SCREEN_HEIGHT } from './src/types';
+import { GraphicsEngine } from '../src/vm/GraphicsEngine';
+import { MEMORY_SIZE, VRAM_OFFSET, SCREEN_WIDTH, SCREEN_HEIGHT } from '../src/types';
 
 // Create mock memory
 const memory = new Uint8Array(MEMORY_SIZE);

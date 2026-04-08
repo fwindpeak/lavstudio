@@ -1,5 +1,5 @@
 
-import { LavaXCompiler } from './src/compiler';
+import { LavaXCompiler } from '../../src/compiler';
 
 const compiler = new LavaXCompiler();
 const source = `

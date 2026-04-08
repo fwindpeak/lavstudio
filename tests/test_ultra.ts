@@ -1,6 +1,6 @@
 
-import { LavaXVM } from './src/vm';
-import { GBUF_OFFSET, VRAM_OFFSET, TEXT_OFFSET } from './src/types';
+import { LavaXVM } from '../src/vm';
+import { GBUF_OFFSET, VRAM_OFFSET, TEXT_OFFSET } from '../src/types';
 
 // Mock everything that might crash
 (globalThis as any).ImageData = class { data = new Uint8ClampedArray(160 * 80 * 4); };

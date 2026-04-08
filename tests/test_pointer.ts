@@ -1,7 +1,7 @@
-import { LavaXCompiler } from './src/compiler';
-import { LavaXAssembler } from './src/compiler/LavaXAssembler';
-import { LavaXVM } from './src/vm';
-import { LocalStorageDriver } from './src/vm/VFSStorageDriver';
+import { LavaXCompiler } from '../src/compiler';
+import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
+import { LavaXVM } from '../src/vm';
+import { LocalStorageDriver } from '../src/vm/VFSStorageDriver';
 
 async function main() {
   const vfsDriver = new LocalStorageDriver();
@@ -9,28 +9,17 @@ async function main() {
   const assembler = new LavaXAssembler();
   const vm = new LavaXVM(vfsDriver);
 
-  // Test switch-case
+  // Test pointer dereference
   const source = `
   void main() {
-    int x = 2;
-    switch(x) {
-      case 1:
-        printf("one\\n");
-        break;
-      case 2:
-        printf("two\\n");
-        break;
-      case 3:
-        printf("three\\n");
-        break;
-      default:
-        printf("other\\n");
-    }
-    printf("done\\n");
+    int a = 42;
+    int* p = &a;
+    int b = *p;
+    printf("%d\\n", b);
   }
   `;
 
-  console.log("=== Testing switch-case ===\n");
+  console.log("=== Testing pointer dereference ===\n");
   console.log("Source:\n" + source);
 
   console.log("\n--- Compiling ---");
@@ -46,8 +35,7 @@ async function main() {
   console.log(`Binary size: ${bin.length} bytes`);
 
   console.log("\n--- Running ---");
-  let output = "";
-  vm.onLog = (msg) => { output += msg; console.log(msg); };
+  vm.onLog = (msg) => { console.log("[LOG]", msg); };
   vm.debug = true;
   vm.load(bin);
   try {
@@ -58,11 +46,6 @@ async function main() {
 
   console.log("\n--- Verification ---");
   console.log("Final SP:", vm.sp);
-  if (vm.sp === 0) {
-    console.log("SUCCESS: Stack is balanced.");
-  } else {
-    console.error(`FAIL: Stack is NOT balanced! SP: ${vm.sp}`);
-  }
 }
 
 main().catch(console.error);

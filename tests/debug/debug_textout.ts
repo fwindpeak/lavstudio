@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import { LavaXVM } from './src/vm';
-import { LocalStorageDriver } from './src/vm/VFSStorageDriver';
+import { LavaXVM } from '../../src/vm';
+import { LocalStorageDriver } from '../../src/vm/VFSStorageDriver';
 import iconv from 'iconv-lite';
 
 const lavFile = process.argv[2] || 'docs/ref_prjs/编译器/资料/通过/4.lav';

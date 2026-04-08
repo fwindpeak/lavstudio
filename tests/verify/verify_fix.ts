@@ -1,8 +1,8 @@
 
-import { LavaXVM } from '../src/vm';
-import { LavaXCompiler } from '../src/compiler';
-import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
-import { Op, SystemOp } from '../src/types';
+import { LavaXVM } from '../../src/vm';
+import { LavaXCompiler } from '../../src/compiler';
+import { LavaXAssembler } from '../../src/compiler/LavaXAssembler';
+import { Op, SystemOp } from '../../src/types';
 
 async function testFreadLeak() {
     const vm = new LavaXVM();

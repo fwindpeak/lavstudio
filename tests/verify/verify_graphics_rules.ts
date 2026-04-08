@@ -1,6 +1,6 @@
 
-import { LavaXVM } from './src/vm';
-import { GBUF_OFFSET, VRAM_OFFSET, SystemOp } from './src/types';
+import { LavaXVM } from '../../src/vm';
+import { GBUF_OFFSET, VRAM_OFFSET, SystemOp } from '../../src/types';
 
 async function test() {
     const vm = new LavaXVM();

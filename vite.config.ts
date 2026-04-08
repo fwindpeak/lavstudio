@@ -6,7 +6,9 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const isProduction = mode === 'production';
   return {
+    base: isProduction ? '/lavstudio/' : '/',
     server: {
       port: 5173,
       host: '0.0.0.0',

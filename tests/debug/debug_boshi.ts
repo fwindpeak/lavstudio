@@ -1,6 +1,6 @@
 
-import { LavaXCompiler } from '../src/compiler';
-import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
+import { LavaXCompiler } from '../../src/compiler';
+import { LavaXAssembler } from '../../src/compiler/LavaXAssembler';
 import fs from 'fs';
 
 const source = fs.readFileSync('./examples/boshi.c', 'utf8');

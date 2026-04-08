@@ -1,34 +1,25 @@
-import { LavaXCompiler } from './src/compiler';
-import { LavaXAssembler } from './src/compiler/LavaXAssembler';
-import { LavaXVM } from './src/vm';
+import { LavaXCompiler } from '../src/compiler';
+import { LavaXAssembler } from '../src/compiler/LavaXAssembler';
+import { LavaXVM } from '../src/vm';
 
 async function main() {
   const compiler = new LavaXCompiler();
   const assembler = new LavaXAssembler();
   const vm = new LavaXVM();
 
-  // Test switch-case
+  // Test do-while loop
   const source = `
   void main() {
-    int x = 2;
-    switch(x) {
-      case 1:
-        printf("one\\n");
-        break;
-      case 2:
-        printf("two\\n");
-        break;
-      case 3:
-        printf("three\\n");
-        break;
-      default:
-        printf("other\\n");
-    }
-    printf("done\\n");
+    int i = 0;
+    do {
+      printf("%d ", i);
+      i = i + 1;
+    } while (i < 5);
+    printf("\\nDone\\n");
   }
   `;
 
-  console.log("=== Testing switch-case ===\n");
+  console.log("=== Testing do-while loop ===\n");
   console.log("Source:\n" + source);
 
   console.log("\n--- Compiling ---");
@@ -42,20 +33,22 @@ async function main() {
   console.log("\n--- Assembling ---");
   const bin = assembler.assemble(asm);
   console.log(`Binary size: ${bin.length} bytes`);
+  console.log("Bytecode:", Array.from(bin.slice(16)).map(b => "0x" + b.toString(16).padStart(2, "0")).join(", "));
 
   console.log("\n--- Running ---");
   let output = "";
   vm.onLog = (msg) => { output += msg; process.stdout.write(msg); };
   vm.debug = false;
   vm.load(bin);
-  try {
-    await vm.run();
-  } catch (e: any) {
-    console.error("\n[ERROR]", e.message);
-  }
+  await vm.run();
 
   console.log("\n--- Verification ---");
   console.log("Final SP:", vm.sp);
+  if (vm.sp === 0) {
+    console.log("SUCCESS: Stack is balanced.");
+  } else {
+    console.error(`FAIL: Stack is NOT balanced! SP: ${vm.sp}`);
+  }
 }
 
 main().catch(console.error);
