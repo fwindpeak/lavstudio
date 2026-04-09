@@ -4,8 +4,6 @@ LavStudio is a modern, web-based IDE and emulator for the **LavaX** platform —
 
 [中文版](README_CN.md)
 
-![LavaX Banner](https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6)
-
 ## ✨ Features
 
 - **Integrated IDE** — Dark-themed editor with syntax highlighting for LavaX C (GVM C).

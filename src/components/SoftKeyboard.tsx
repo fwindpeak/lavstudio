@@ -25,11 +25,11 @@ export const getKeyCode = (labelOrKey: string): number | null => {
 };
 
 export const SoftKeyboard: React.FC<{ onKeyPress: (code: number) => void; onKeyRelease?: (code: number) => void }> = ({ onKeyPress, onKeyRelease }) => (
-    <div className="grid gap-0.5 sm:gap-1 p-1.5 sm:p-2 bg-neutral-900/90 rounded-2xl border border-white/5 backdrop-blur-xl shadow-inner touch-none select-none">
+    <div className="w-full max-w-[26rem] grid gap-1 p-1.5 sm:p-2 bg-neutral-900/90 rounded-2xl border border-white/5 backdrop-blur-xl shadow-inner touch-none select-none">
         {KEYBOARD_LAYOUT.map((row, rowIndex) => (
-            <div key={rowIndex} className="flex gap-0.5 sm:gap-1 justify-center">
+            <div key={rowIndex} className="grid grid-cols-10 gap-1">
                 {row.map((key, keyIndex) => {
-                    if (key === '') return <div key={keyIndex} className="w-7 h-7 sm:w-8 sm:h-8" />;
+                    if (key === '') return <div key={keyIndex} className="aspect-square w-full" />;
                     const displayKey = key.split('\n');
                     const isSpecial = ['ON/OFF', 'HELP', 'SHIFT', 'CAPS', 'ESC', '↵', '⇈', '⇊', 'F1', 'F2', 'F3', 'F4', 'SPACE'].includes(displayKey[0]);
 
@@ -54,10 +54,10 @@ export const SoftKeyboard: React.FC<{ onKeyPress: (code: number) => void; onKeyR
                             onPointerLeave={handlePointerUpOrLeave}
                             onPointerCancel={handlePointerUpOrLeave}
                             onContextMenu={(e) => e.preventDefault()}
-                            className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center gap-0.5 ${isSpecial ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-750' : 'bg-neutral-700 text-white hover:bg-neutral-600'} active:scale-90 active:brightness-75 text-[8px] sm:text-[9px] font-black rounded-lg shadow-lg transition-all border-b-[3px] border-black/40 relative`}
+                            className={`aspect-square w-full min-w-0 flex items-center justify-center gap-0.5 ${isSpecial ? 'bg-neutral-800 text-neutral-400 hover:bg-neutral-750' : 'bg-neutral-700 text-white hover:bg-neutral-600'} active:scale-90 active:brightness-75 text-[8px] sm:text-[9px] font-black rounded-lg shadow-lg transition-all border-b-[3px] border-black/40 relative`}
                         >
                             <span>{displayKey[0]}</span>
-                            {displayKey[1] && <span className="text-[5px] sm:text-[6px] text-neutral-400 self-end mb-2">{displayKey[1]}</span>}
+                            {displayKey[1] && <span className="text-[5px] sm:text-[6px] text-neutral-400 self-end mb-1.5">{displayKey[1]}</span>}
                         </button>
                     );
                 })}

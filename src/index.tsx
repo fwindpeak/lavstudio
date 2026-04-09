@@ -4,7 +4,7 @@ import './index.css';
 import { createRoot } from 'react-dom/client';
 import {
   Play, Square, FileCode, Monitor, FolderOpen, Terminal as TerminalIcon,
-  Settings, KeyRound, Save, Download, Trash2, Cpu, Braces, Binary, SearchCode, Zap, Bug, Globe
+  Save, Trash2, Cpu, Binary, SearchCode, Zap, Bug, Globe, Edit
 } from 'lucide-react';
 import { FileManager } from './components/FileManager';
 import { Terminal as LavaTerminal } from './components/Terminal';
@@ -193,6 +193,9 @@ export function App() {
 
   const switchMobileView = (view: 'editor' | 'emulator' | 'files') => {
     setMobileView(view);
+    if (view !== 'editor') {
+      setShowExamples(false);
+    }
     if (view === 'emulator') setRightTab('emulator');
     else if (view === 'files') setRightTab('files');
   };
@@ -284,7 +287,7 @@ export function App() {
   const terminalLogs = useMemo(() => logs.map(l => ({ text: l, time: new Date().toLocaleTimeString() })), [logs]);
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a0c] text-slate-100 font-sans selection:bg-purple-500/30 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-[#0a0a0c] text-slate-100 font-sans selection:bg-purple-500/30 overflow-hidden" style={{ paddingLeft: 'var(--safe-area-left)', paddingRight: 'var(--safe-area-right)' }}>
       {/* Header */}
       <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl flex flex-wrap items-center justify-between px-3 md:px-6 z-10 shrink-0 gap-2 py-2 md:py-0 md:h-16">
         {/* Logo */}
@@ -399,61 +402,66 @@ export function App() {
         </div>
       </header>
 
-      {/* Mobile action toolbar */}
-      <div className="md:hidden border-b border-white/5 bg-black/40 flex items-center px-3 py-1.5 gap-1.5 overflow-x-auto no-scrollbar shrink-0">
-        <div className="relative shrink-0">
-          <button
-            onClick={() => setShowExamples(!showExamples)}
-            className="text-[10px] font-bold text-neutral-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-white/5 bg-white/5 transition-all flex items-center gap-1.5 whitespace-nowrap"
-          >
-            <FileCode size={12} /> {t('examples')}
-          </button>
+      {/* Mobile editor actions */}
+      {mobileView === 'editor' && (
+        <div className="md:hidden border-b border-white/5 bg-black/40 shrink-0 relative z-20">
+          <div className="flex items-center px-3 py-1.5 gap-1.5 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setShowExamples(prev => !prev)}
+              className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${showExamples ? 'text-white border-purple-500/30 bg-purple-500/15' : 'text-neutral-400 hover:text-white border-white/5 bg-white/5'}`}
+            >
+              <FileCode size={12} /> {t('examples')}
+            </button>
+            <button
+              onClick={build}
+              className="text-[10px] font-black uppercase text-blue-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+            >
+              <Zap size={12} className="fill-current" /> {t('build')}
+            </button>
+            <button
+              onClick={assemble}
+              className="text-[10px] font-black uppercase text-emerald-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+            >
+              <Binary size={12} /> {t('assemble')}
+            </button>
+            <button
+              onClick={() => handleDecompile()}
+              className="text-[10px] font-black uppercase text-amber-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
+            >
+              <SearchCode size={12} /> {t('decompile')}
+            </button>
+          </div>
+
           {showExamples && (
-            <div className="absolute top-full left-0 mt-2 w-48 bg-neutral-900 border border-white/10 rounded-xl shadow-2xl z-50 py-2 overflow-hidden">
-              {EXAMPLES.map((ex, i) => (
-                <button
-                  key={i}
-                  onClick={() => loadExample(ex)}
-                  className="w-full text-left px-4 py-2 text-[11px] text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-                >
-                  {ex.name}
-                </button>
-              ))}
+            <div className="px-3 pb-2">
+              <div className="rounded-xl border border-white/10 bg-neutral-900/95 p-2 grid grid-cols-2 gap-2">
+                {EXAMPLES.map((ex, i) => (
+                  <button
+                    key={i}
+                    onClick={() => loadExample(ex)}
+                    className="text-left px-3 py-2.5 rounded-lg text-[11px] text-neutral-300 bg-white/5 hover:bg-white/10 hover:text-white transition-colors"
+                  >
+                    {ex.name}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
-        <button
-          onClick={build}
-          className="text-[10px] font-black uppercase text-blue-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
-        >
-          <Zap size={12} className="fill-current" /> {t('build')}
-        </button>
-        <button
-          onClick={assemble}
-          className="text-[10px] font-black uppercase text-emerald-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
-        >
-          <Binary size={12} /> {t('assemble')}
-        </button>
-        <button
-          onClick={() => handleDecompile()}
-          className="text-[10px] font-black uppercase text-amber-400 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 flex items-center gap-1 whitespace-nowrap shrink-0"
-        >
-          <SearchCode size={12} /> {t('decompile')}
-        </button>
-      </div>
+      )}
 
       {/* Main Content Layout */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 min-h-0 flex overflow-hidden">
         {/* Left Panel: Editor & Tabs */}
-        <div className={`flex-col min-w-0 border-r border-white/5 flex-1 ${mobileView !== 'editor' ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`flex-col min-w-0 min-h-0 border-r border-white/5 flex-1 ${mobileView !== 'editor' ? 'hidden md:flex' : 'flex'}`}>
           {/* Tab Bar */}
-          <div className="h-10 bg-black/40 border-b border-white/5 flex items-center px-4 gap-1 overflow-x-auto no-scrollbar">
+          <div className="h-10 bg-black/40 border-b border-white/5 flex items-center px-2 md:px-4 gap-1 overflow-x-auto no-scrollbar">
             {tabs.map(tab => (
               <div
                 key={tab.id}
                 onClick={() => setActiveTabId(tab.id)}
                 onDoubleClick={() => setEditingTabId(tab.id)}
-                className={`group flex items-center gap-2 px-4 h-full cursor-pointer border-t-2 transition-all ${activeTabId === tab.id ? 'bg-white/5 border-purple-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}
+                className={`group flex items-center gap-2 px-3 md:px-4 h-full cursor-pointer border-t-2 transition-all ${activeTabId === tab.id ? 'bg-white/5 border-purple-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}
               >
                 <FileCode size={12} className={activeTabId === tab.id ? 'text-purple-400' : 'text-neutral-600'} />
                 {editingTabId === tab.id ? (
@@ -470,10 +478,20 @@ export function App() {
                 ) : (
                   <span className="text-[11px] font-bold uppercase tracking-wider">{tab.name}</span>
                 )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(tab.id);
+                  }}
+                  className={`p-1 rounded transition-all ${activeTabId === tab.id ? 'text-purple-300 hover:bg-white/10' : 'text-neutral-600 hover:text-neutral-300 hover:bg-white/5'} md:opacity-0 md:group-hover:opacity-100`}
+                  title={t('rename')}
+                >
+                  <Edit size={10} />
+                </button>
                 {tabs.length > 1 && (
                   <button
                     onClick={(e) => closeTab(tab.id, e)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded transition-all ml-auto"
+                    className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-white/10 rounded transition-all ml-auto"
                   >
                     <Trash2 size={10} className="text-neutral-500 hover:text-red-400" />
                   </button>
@@ -490,8 +508,8 @@ export function App() {
           </div>
 
           {/* Editor Options Bar */}
-          <div className="h-10 border-b border-white/5 bg-black/20 flex items-center px-4 justify-between">
-            <div className="flex items-center gap-1">
+          <div className="min-h-10 border-b border-white/5 bg-black/20 flex items-center px-2 md:px-4 py-1.5 justify-between gap-2">
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
               <button onClick={() => setViewMode('editor')} className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'editor' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
                 {t('source')}
               </button>
@@ -503,16 +521,27 @@ export function App() {
               </button>
             </div>
 
-            <button
-              onClick={saveToVFS}
-              className="text-[10px] font-black text-purple-400/80 hover:text-purple-300 px-2 md:px-3 py-1 rounded-lg border border-purple-500/10 bg-purple-500/5 transition-all flex items-center gap-1.5"
-            >
-              <Save size={12} /> {t('saveToVFS')}
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              {activeTab && (
+                <button
+                  onClick={() => setEditingTabId(activeTab.id)}
+                  className="text-[10px] font-black text-neutral-300 hover:text-white px-2 md:px-3 py-1 rounded-lg border border-white/10 bg-white/5 transition-all flex items-center gap-1.5"
+                  title={t('rename')}
+                >
+                  <Edit size={12} />
+                </button>
+              )}
+              <button
+                onClick={saveToVFS}
+                className="text-[10px] font-black text-purple-400/80 hover:text-purple-300 px-2 md:px-3 py-1 rounded-lg border border-purple-500/10 bg-purple-500/5 transition-all flex items-center gap-1.5"
+              >
+                <Save size={12} /> <span className="hidden sm:inline">{t('saveToVFS')}</span>
+              </button>
+            </div>
           </div>
 
           {/* Editor Content Area */}
-          <div className="flex-1 overflow-hidden p-3 md:p-6 relative">
+          <div className="flex-1 min-h-0 overflow-hidden p-2 md:p-6 relative">
             {viewMode === 'editor' && (
               <Editor
                 code={code}
@@ -567,9 +596,9 @@ export function App() {
         </div>
 
         {/* Right Panel: Device & VFS */}
-        <div className={`flex-col bg-black/20 ${mobileView === 'editor' ? 'hidden md:flex' : 'flex'} w-full md:w-[500px] md:shrink-0`}>
+        <div className={`flex-col min-h-0 bg-black/20 ${mobileView === 'editor' ? 'hidden md:flex' : 'flex'} w-full md:w-[500px] md:shrink-0`}>
           {/* Sidebar Tabs */}
-          <div className="h-12 border-b border-white/5 bg-black/20 flex items-center px-4 gap-1">
+          <div className="h-11 md:h-12 border-b border-white/5 bg-black/20 flex items-center px-2 md:px-4 gap-1">
             <button onClick={() => switchMobileView('emulator')} className={`flex-1 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${rightTab === 'emulator' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-300'}`}>
               {t('hardware')}
             </button>
@@ -578,7 +607,7 @@ export function App() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col relative custom-scrollbar">
+          <div className="flex-1 overflow-auto p-2 md:p-8 flex flex-col relative custom-scrollbar">
             {rightTab === 'emulator' ? (
               <Device
                 screen={screen}
@@ -623,24 +652,24 @@ export function App() {
       </footer>
 
       {/* Mobile bottom navigation */}
-      <nav className="md:hidden h-14 border-t border-white/5 bg-black/80 backdrop-blur-xl flex shrink-0">
+      <nav className="md:hidden border-t border-white/5 bg-black/80 backdrop-blur-xl flex shrink-0" style={{ paddingBottom: 'var(--safe-area-bottom)', minHeight: 'calc(3.5rem + var(--safe-area-bottom))' }}>
         <button
           onClick={() => switchMobileView('editor')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'editor' ? 'text-purple-400' : 'text-neutral-500'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all ${mobileView === 'editor' ? 'text-purple-400' : 'text-neutral-500'}`}
         >
           <FileCode size={20} />
           <span className="text-[10px] font-black uppercase tracking-wider">{t('editorTab')}</span>
         </button>
         <button
           onClick={() => switchMobileView('emulator')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'emulator' ? 'text-blue-400' : 'text-neutral-500'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all ${mobileView === 'emulator' ? 'text-blue-400' : 'text-neutral-500'}`}
         >
           <Monitor size={20} />
           <span className="text-[10px] font-black uppercase tracking-wider">{t('emulatorTab')}</span>
         </button>
         <button
           onClick={() => switchMobileView('files')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all ${mobileView === 'files' ? 'text-emerald-400' : 'text-neutral-500'}`}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all ${mobileView === 'files' ? 'text-emerald-400' : 'text-neutral-500'}`}
         >
           <FolderOpen size={20} />
           <span className="text-[10px] font-black uppercase tracking-wider">{t('filesTab')}</span>

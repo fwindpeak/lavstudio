@@ -4,8 +4,6 @@ LavStudio 是一个现代化的基于 Web 的集成开发环境 (IDE) 和 **Lava
 
 [English Version](README.md)
 
-![LavaX Banner](https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6)
-
 ## ✨ 特性
 
 - **集成 IDE** — 专为 LavaX C (GVM C) 设计，带语法高亮的深色主题编辑器。

@@ -74,6 +74,13 @@ const en = {
   openInEditor: 'Open in Editor',
   download: 'Download',
   rename: 'Rename',
+  move: 'Move',
+  moveTitle: 'Move Item',
+  moveMsg: 'Enter destination path for "%s":',
+  movePlaceholder: '/folder/file.c',
+  invalidPath: 'Path cannot be empty',
+  itemExists: 'Target already exists',
+  cannotMoveIntoSelf: 'Cannot move a folder into itself',
 
   // Terminal
   integratedTerminal: 'Integrated Terminal',
@@ -165,6 +172,13 @@ const zhCN: typeof en = {
   openInEditor: '在编辑器中打开',
   download: '下载',
   rename: '重命名',
+  move: '移动',
+  moveTitle: '移动项目',
+  moveMsg: '输入 “%s” 的目标路径：',
+  movePlaceholder: '/folder/file.c',
+  invalidPath: '路径不能为空',
+  itemExists: '目标已存在',
+  cannotMoveIntoSelf: '不能将文件夹移动到其自身内部',
 
   // Terminal
   integratedTerminal: '集成终端',

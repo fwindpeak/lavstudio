@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+:root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
 body {
     margin: 0;
     background: #0a0a0a;
@@ -7,6 +20,7 @@ body {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     /* Prevent elastic overscroll on iOS */
     overscroll-behavior: none;
+    overflow-x: hidden;
 }
 
 button {
@@ -36,4 +50,13 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #525252;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
 }

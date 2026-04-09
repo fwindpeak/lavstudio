@@ -22,6 +22,56 @@ export const FileManager: React.FC<{
         setAllFiles(vm.vfs.getFiles());
     }, [vm]);
 
+    const normalizePath = useCallback((path: string) => {
+        const trimmed = path.trim();
+        const absolute = trimmed.startsWith('/') ? trimmed : `${currentPath === '/' ? '' : currentPath.replace(/\/$/, '')}/` + trimmed;
+        const parts = absolute.split('/').filter(p => p && p !== '.');
+        const stack: string[] = [];
+
+        parts.forEach(part => {
+            if (part === '..') stack.pop();
+            else stack.push(part);
+        });
+
+        return '/' + stack.join('/');
+    }, [currentPath]);
+
+    const itemExists = useCallback((path: string) => {
+        const normalized = normalizePath(path);
+        const dirPrefix = normalized.endsWith('/') ? normalized : `${normalized}/`;
+        return allFiles.some(f => f.path === normalized || f.path === dirPrefix || f.path.startsWith(dirPrefix));
+    }, [allFiles, normalizePath]);
+
+    const moveItemInternal = useCallback((item: typeof items[number], destinationPath: string) => {
+        const targetPath = normalizePath(destinationPath);
+        if (!targetPath || targetPath === '/') return false;
+
+        if (item.isDir) {
+            const sourcePrefix = item.fullPath.endsWith('/') ? item.fullPath : `${item.fullPath}/`;
+            const targetPrefix = targetPath.endsWith('/') ? targetPath : `${targetPath}/`;
+            if (targetPrefix.startsWith(sourcePrefix)) {
+                return false;
+            }
+
+            const filesToMove = allFiles.filter(f => f.path === sourcePrefix || f.path.startsWith(sourcePrefix));
+            filesToMove.forEach(f => {
+                const data = vm.vfs.getFile(f.path);
+                if (!data) return;
+                const relativePath = f.path.slice(sourcePrefix.length);
+                const nextPath = relativePath ? `${targetPath}/${relativePath}` : `${targetPath}/`;
+                vm.vfs.addFile(nextPath, data);
+                vm.vfs.deleteFile(f.path);
+            });
+            return true;
+        }
+
+        const data = vm.vfs.getFile(item.fullPath);
+        if (!data) return false;
+        vm.vfs.addFile(targetPath, data);
+        vm.vfs.deleteFile(item.fullPath);
+        return true;
+    }, [allFiles, normalizePath, vm]);
+
     useEffect(() => {
         refreshFiles();
         vm.vfs.ready.then(refreshFiles);
@@ -114,8 +164,9 @@ export const FileManager: React.FC<{
             });
 
             if (confirmed) {
-                allFiles.filter(f => f.path.startsWith(item.fullPath + '/')).forEach(f => vm.vfs.deleteFile(f.path));
-                vm.vfs.deleteFile(item.fullPath + '/.keep'); // if exists
+                const dirPrefix = item.fullPath.endsWith('/') ? item.fullPath : `${item.fullPath}/`;
+                allFiles.filter(f => f.path === dirPrefix || f.path.startsWith(dirPrefix)).forEach(f => vm.vfs.deleteFile(f.path));
+                vm.vfs.deleteFile(item.fullPath);
                 refreshFiles();
             }
         } else {
@@ -166,6 +217,9 @@ export const FileManager: React.FC<{
             validation: (val) => {
                 if (!val.trim()) return t('nameEmpty');
                 if (val.length > 14) return t('nameTooLong');
+                const parentPath = currentPath === '/' ? '/' : currentPath.endsWith('/') ? currentPath : currentPath + '/';
+                const nextPath = `${parentPath}${val}`;
+                if (val !== item.name && itemExists(nextPath)) return t('itemExists');
                 return null;
             }
         });
@@ -175,30 +229,37 @@ export const FileManager: React.FC<{
         const parentPath = currentPath === '/' ? '/' : currentPath.endsWith('/') ? currentPath : currentPath + '/';
         const newPath = `${parentPath}${newName}`;
 
-        if (item.isDir) {
-            // Rename folder: move all files under it
-            const oldPrefix = item.fullPath.endsWith('/') ? item.fullPath : item.fullPath + '/';
-            const filesToMove = allFiles.filter(f => f.path.startsWith(oldPrefix) || f.path === oldPrefix.slice(0, -1));
+        moveItemInternal(item, newPath);
 
-            filesToMove.forEach(f => {
-                const data = vm.vfs.getFile(f.path);
-                if (data) {
-                    const relativePath = f.path.slice(oldPrefix.length);
-                    const newFilePath = `${newPath}/${relativePath}`;
-                    vm.vfs.addFile(newFilePath, data);
-                    vm.vfs.deleteFile(f.path);
-                }
-            });
-        } else {
-            // Rename file
-            const data = vm.vfs.getFile(item.fullPath);
-            if (data) {
-                vm.vfs.addFile(newPath, data);
-                vm.vfs.deleteFile(item.fullPath);
-            }
-        }
 
         refreshFiles();
+    };
+
+    const moveItem = async (item: typeof items[0]) => {
+        const defaultPath = item.fullPath;
+        const destination = await dialog.prompt({
+            title: t('moveTitle'),
+            message: t('moveMsg', item.name),
+            defaultValue: defaultPath,
+            placeholder: t('movePlaceholder'),
+            validation: (value) => {
+                if (!value.trim()) return t('invalidPath');
+                const normalized = normalizePath(value);
+                if (normalized === item.fullPath) return null;
+                if (item.isDir) {
+                    const sourcePrefix = item.fullPath.endsWith('/') ? item.fullPath : `${item.fullPath}/`;
+                    const targetPrefix = normalized.endsWith('/') ? normalized : `${normalized}/`;
+                    if (targetPrefix.startsWith(sourcePrefix)) return t('cannotMoveIntoSelf');
+                }
+                if (itemExists(normalized)) return t('itemExists');
+                return null;
+            }
+        });
+
+        if (!destination) return;
+        if (moveItemInternal(item, destination)) {
+            refreshFiles();
+        }
     };
 
     const breadcrumbs = useMemo(() => {
@@ -252,7 +313,7 @@ export const FileManager: React.FC<{
                     return (
                         <div
                             key={item.fullPath}
-                            className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 rounded-xl group text-[11px] transition-all cursor-default border border-transparent hover:border-white/10"
+                            className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 rounded-xl group text-[11px] transition-all cursor-default border border-transparent hover:border-white/10 gap-3"
                             onClick={() => {
                                 console.log('[FileManager] Item clicked:', item);
                                 if (item.isDir) {
@@ -271,7 +332,7 @@ export const FileManager: React.FC<{
                                 }
                             }}
                         >
-                            <div className="flex items-center gap-3 overflow-hidden flex-1">
+                            <div className="flex items-center gap-3 overflow-hidden flex-1 min-w-0">
                                 {item.isDir ? (
                                     <Folder size={16} className="text-blue-400" />
                                 ) : (
@@ -282,7 +343,7 @@ export const FileManager: React.FC<{
                                     <span className="text-neutral-500 text-[9px] uppercase">{item.isDir ? t('dirLabel') : `${item.size} Bytes`}</span>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center gap-1.5 flex-wrap justify-end opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
                                 {!item.isDir && isLav && (
                                     <button
                                         onClick={(e) => {
@@ -292,17 +353,18 @@ export const FileManager: React.FC<{
                                             if (d) onRunLav(d);
                                             else console.error('[FileManager] Could not get file data for:', item.fullPath);
                                         }}
-                                        className="p-1.5 hover:text-emerald-500 transition-colors"
+                                        className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-emerald-500 hover:bg-white/10 transition-colors"
                                         title={t('runFile')}
                                     >
                                         <PlayCircle size={16} />
                                     </button>
                                 )}
-                                {!item.isDir && isLav && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onDecompileLav(d); }} className="p-1.5 hover:text-blue-400 transition-colors" title={t('decompile')}><SearchCode size={16} /></button>}
-                                {!item.isDir && isText && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onOpenFile(item.fullPath, d); }} className="p-1.5 hover:text-purple-400 transition-colors" title={t('openInEditor')}><FileText size={16} /></button>}
-                                {!item.isDir && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) downloadFile(item.name, d); }} className="p-1.5 hover:text-blue-400 transition-colors" title={t('download')}><Download size={16} /></button>}
-                                <button onClick={(e) => { e.stopPropagation(); renameItem(item); }} className="p-1.5 hover:text-yellow-400 transition-colors" title={t('rename')}><Edit size={16} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); deleteItem(item); }} className="p-1.5 hover:text-red-500 transition-colors" title={t('deleteAction')}><Trash2 size={16} /></button>
+                                {!item.isDir && isLav && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onDecompileLav(d); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-blue-400 hover:bg-white/10 transition-colors" title={t('decompile')}><SearchCode size={16} /></button>}
+                                {!item.isDir && isText && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) onOpenFile(item.fullPath, d); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-purple-400 hover:bg-white/10 transition-colors" title={t('openInEditor')}><FileText size={16} /></button>}
+                                {!item.isDir && <button onClick={(e) => { e.stopPropagation(); const d = vm.vfs.getFile(item.fullPath); if (d) downloadFile(item.name, d); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-blue-400 hover:bg-white/10 transition-colors" title={t('download')}><Download size={16} /></button>}
+                                <button onClick={(e) => { e.stopPropagation(); moveItem(item); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-cyan-400 hover:bg-white/10 transition-colors text-[10px] font-bold" title={t('move')}>{t('move')}</button>
+                                <button onClick={(e) => { e.stopPropagation(); renameItem(item); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-yellow-400 hover:bg-white/10 transition-colors" title={t('rename')}><Edit size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); deleteItem(item); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:text-red-500 hover:bg-white/10 transition-colors" title={t('deleteAction')}><Trash2 size={16} /></button>
                             </div>
                         </div>
                     );
