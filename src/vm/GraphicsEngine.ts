@@ -401,15 +401,11 @@ export class GraphicsEngine {
 
         const isBigFont = (type & 0x80) !== 0; // bit 7 = 1 -> big font (16), 0 -> small font (12)
         const toVram = (type & 0x40) !== 0;    // bit 6 = 1 -> VRAM (screen)
-        const hFlip = (type & 0x20) !== 0;     // bit 5 = 1 -> horizontal flip
-        const reverseDisplay = (type & 0x08) !== 0; // bit 3 = 1 -> reverse color
+        const reverseDisplay = (type & 0x08) !== 0; // bit 3 = 1 -> reverse glyph
         const drawMode = type & 0x07;          // 1:copy 2:not 3:or 4:and 5:xor
 
         const size = isBigFont ? 16 : 12;
         const offset = toVram ? this.getVramOffset() : this.getGbufOffset();
-
-        // Ensure flip requirement is met? "要求图形宽度和x坐标都必须是8的整数倍"
-        // Let's just implement it visually.
 
         let curX = x;
         let i = 0;
@@ -437,14 +433,13 @@ export class GraphicsEngine {
 
             for (let r = 0; r < size; r++) {
                 for (let c = 0; c < w; c++) {
-                    let sourceC = hFlip ? (w - 1 - c) : c;
                     let bit = 0;
                     if (isChinese) {
-                        const byteIdx = r * 2 + (sourceC > 7 ? 1 : 0);
-                        const bIdx = 7 - (sourceC % 8);
+                        const byteIdx = r * 2 + (c > 7 ? 1 : 0);
+                        const bIdx = 7 - (c % 8);
                         bit = (charBytes[byteIdx] >> bIdx) & 1;
                     } else {
-                        const bIdx = 7 - sourceC;
+                        const bIdx = 7 - c;
                         bit = (charBytes[r] >> bIdx) & 1;
                     }
 
