@@ -93,6 +93,32 @@ export class LavaXCompiler {
     SetFgColor: 1, SetBgColor: 1, SetPalette: 3, SetGraphMode: 1
   };
 
+  private getTypeSize(type: string): number {
+    if (type === 'char') return 1;
+    if (type === 'int') return 2;
+    return 4;
+  }
+
+  private getStorageSize(type: string, pointerDepth: number): number {
+    return pointerDepth > 0 ? 4 : this.getTypeSize(type);
+  }
+
+  private getVariableElementSize(variable: Variable | StructMember): number {
+    return variable.pointerDepth > 0 ? 4 : this.getTypeSize(variable.type);
+  }
+
+  private emitBytewiseLocalInit(offset: number, values: number[]) {
+    for (let index = 0; index < values.length; index++) {
+      this.pushLiteral(values[index] & 0xFF);
+      this.asm.push(`LEA_L_B ${offset + index}`);
+      this.asm.push('PUSH_D 0x10000');
+      this.asm.push('OR');
+      this.asm.push('SWAP');
+      this.asm.push('STORE');
+      this.asm.push('POP');
+    }
+  }
+
   private evalConstant(expr: string): number {
     // 1. Recursive macro expansion
     let expanded = expr;
@@ -267,7 +293,7 @@ export class LavaXCompiler {
           } else {
             // Global variable/array
             let size = 1;
-            const elementSize = type === 'char' ? 1 : 4;
+            const elementSize = this.getStorageSize(type, pointerDepth);
             const dimensions: number[] = [];
             let isImplicitFirstDim = false;
 
@@ -329,12 +355,14 @@ export class LavaXCompiler {
                   size = count * innerSize;
                 }
                 // Emit INIT for global array
-                const elementSize = type === 'char' ? 1 : 4;
+                const elementSize = this.getStorageSize(type, pointerDepth);
                 if (values.length > 0) {
                   const byteValues: number[] = [];
                   for (const v of values) {
                     if (elementSize === 1) byteValues.push(v & 0xFF);
-                    else {
+                    else if (elementSize === 2) {
+                      byteValues.push(v & 0xFF, (v >> 8) & 0xFF);
+                    } else {
                       byteValues.push(v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF);
                     }
                   }
@@ -345,6 +373,7 @@ export class LavaXCompiler {
                 const val = this.evalConstant(expr);
                 if (!isNaN(val)) {
                   if (elementSize === 1) this.initializers.push(`INIT ${this.globalOffset} 1 ${val & 0xFF}`);
+                  else if (elementSize === 2) this.initializers.push(`INIT ${this.globalOffset} 2 ${val & 0xFF} ${(val >> 8) & 0xFF}`);
                   else this.initializers.push(`INIT ${this.globalOffset} 4 ${val & 0xFF} ${(val >> 8) & 0xFF} ${(val >> 16) & 0xFF} ${(val >> 24) & 0xFF}`);
                 }
               }
@@ -661,7 +690,7 @@ export class LavaXCompiler {
         while (this.match('*')) { pointerDepth++; }
         const name = this.parseToken();
         let size = 1;
-        const elementSize = token === 'char' ? 1 : 4;
+        const elementSize = this.getStorageSize(token, pointerDepth);
         const dimensions: number[] = [];
         let isImplicitFirstDim = false;
 
@@ -701,7 +730,22 @@ export class LavaXCompiler {
           const initializerToken = this.peekToken();
           if (initializerToken.startsWith('"')) {
             const str = initializerToken.substring(1, initializerToken.length - 1);
-            if (size === 0) size = str.length + 1;
+            const bytes = encodeToGBK(unescapeString(str));
+            if (size === 0) size = bytes.length + 1;
+
+            if (token !== 'char' || pointerDepth > 0) {
+              throw new Error(`String initializer requires char array: ${name}`);
+            }
+            if (size < bytes.length + 1) {
+              throw new Error(`Initializer too long for ${name}`);
+            }
+
+            this.parseToken();
+            this.locals.set(name, { offset: this.localOffset, type: token, size, pointerDepth, dimensions });
+            const addr = this.localOffset;
+            this.localOffset += size * elementSize;
+            this.emitBytewiseLocalInit(addr, [...bytes, 0]);
+            continue;
           } else if (initializerToken === '{') {
             // Local array initialization with list
             const values: number[] = [];
@@ -1135,7 +1179,7 @@ export class LavaXCompiler {
         const isCompound = op.endsWith('=') && op.length > 1 && !['==', '!=', '<=', '>='].includes(op);
         if (op === '=' || isCompound) {
           this.parseToken(); // consume op
-          const elementSize = variable.type === 'char' ? 1 : 4;
+          const elementSize = this.getVariableElementSize(variable);
           if (elementSize > 1) {
             this.pushLiteral(elementSize);
             this.asm.push('MUL');
@@ -1417,7 +1461,7 @@ export class LavaXCompiler {
         if (this.match('[')) {
           this.parseExpression();
           this.expect(']');
-          const elementSize = variable.type === 'char' ? 1 : 4;
+          const elementSize = this.getVariableElementSize(variable);
           this.asm.push(`PUSH_B ${elementSize}`);
           this.asm.push('MUL');
           if (isLocal) {
@@ -1581,7 +1625,7 @@ export class LavaXCompiler {
           }
           this.expect(']');
         }
-        const elementSize = variable.type === 'char' ? 1 : 4;
+        const elementSize = this.getVariableElementSize(variable);
         if (elementSize > 1) {
           this.pushLiteral(elementSize);
           this.asm.push('MUL');
@@ -1741,10 +1785,10 @@ export class LavaXCompiler {
         if (this.src[this.pos] === ';') this.pos++;
         continue;
       }
-      const elementSize = memberType === 'char' ? 1 : 4;
       do {
         let pointerDepth = 0;
         while (this.match('*')) pointerDepth++;
+        const elementSize = this.getStorageSize(memberType, pointerDepth);
         const memberName = this.parseToken();
         let size = 1;
         const dimensions: number[] = [];
