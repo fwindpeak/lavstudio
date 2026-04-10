@@ -119,6 +119,101 @@ export class LavaXCompiler {
     }
   }
 
+  private getKnownArraySize(dimensions: number[]): number | null {
+    if (dimensions.some(dimension => dimension === 0)) return null;
+    return dimensions.reduce((total, dimension) => total * dimension, 1);
+  }
+
+  private parseInitializerScalarValue(): number {
+    const start = this.pos;
+    this.skipInitializerElement();
+    const expr = this.src.substring(start, this.pos).trim().replace(/,$/, '').replace(/\}$/, '');
+    const value = this.evalConstant(expr);
+    return isNaN(value) ? 0 : value;
+  }
+
+  private parseCharArrayInitializer(dimensions: number[]): { bytes: number[]; topLevelCount: number } {
+    this.expect('{');
+    const bytes: number[] = [];
+    let topLevelCount = 0;
+
+    // If next token is a flat list of scalars for a multi-dim array,
+    // prefer to parse it as a flat initializer list to preserve element order.
+    const firstTok = this.peekToken();
+    if (dimensions.length > 1 && firstTok !== '{' && !firstTok.startsWith('"')) {
+      // Flat scalar list for multi-dim: use parseInitializerList to get values
+      const flatValues: number[] = [];
+      // parse flat scalar list until '}'
+      while (!this.peekToken() || this.peekToken() !== '}') {
+        // If we see '}', break
+        if (this.peekToken() === '}') break;
+        const v = this.parseInitializerScalarValue();
+        flatValues.push(v & 0xFF);
+        if (!this.match(',')) break;
+      }
+      // consume trailing '}'
+      if (this.peekToken() === '}') this.parseToken();
+      topLevelCount = flatValues.length;
+      for (const v of flatValues) bytes.push(v & 0xFF);
+      const totalSize = this.getKnownArraySize(dimensions);
+      if (totalSize !== null) {
+        if (bytes.length > totalSize) bytes.length = totalSize;
+        while (bytes.length < totalSize) bytes.push(0);
+      }
+      return { bytes, topLevelCount };
+    }
+
+    if (this.peekToken() === '}') {
+      this.parseToken();
+      return { bytes, topLevelCount };
+    }
+
+    do {
+      topLevelCount++;
+      if (dimensions.length > 1) {
+        const subarraySize = dimensions.slice(1).reduce((total, dimension) => (dimension === 0 ? total : total * dimension), 1);
+        const token = this.peekToken();
+        let elementBytes: number[];
+
+        if (token === '{') {
+          elementBytes = this.parseCharArrayInitializer(dimensions.slice(1)).bytes;
+        } else if (token.startsWith('"')) {
+          const strToken = this.parseToken();
+          const raw = strToken.substring(1, strToken.length - 1);
+          elementBytes = encodeToGBK(unescapeString(raw));
+          if (elementBytes.length < subarraySize) elementBytes.push(0);
+        } else {
+          elementBytes = [this.parseInitializerScalarValue() & 0xFF];
+        }
+
+        if (elementBytes.length > subarraySize) elementBytes = elementBytes.slice(0, subarraySize);
+        while (elementBytes.length < subarraySize) elementBytes.push(0);
+        bytes.push(...elementBytes);
+      } else {
+        const token = this.peekToken();
+        if (token.startsWith('"')) {
+          const strToken = this.parseToken();
+          const raw = strToken.substring(1, strToken.length - 1);
+          const encoded = encodeToGBK(unescapeString(raw));
+          bytes.push(...encoded);
+          if (dimensions[0] === 0 || bytes.length < dimensions[0]) bytes.push(0);
+        } else {
+          bytes.push(this.parseInitializerScalarValue() & 0xFF);
+        }
+      }
+    } while (this.match(','));
+
+    this.expect('}');
+
+    const totalSize = this.getKnownArraySize(dimensions);
+    if (totalSize !== null) {
+      if (bytes.length > totalSize) bytes.length = totalSize;
+      while (bytes.length < totalSize) bytes.push(0);
+    }
+
+    return { bytes, topLevelCount };
+  }
+
   private evalConstant(expr: string): number {
     // 1. Recursive macro expansion
     let expanded = expr;
@@ -348,8 +443,17 @@ export class LavaXCompiler {
                 this.initializers.push(`INIT ${this.globalOffset} ${bytes.length + 1} ${bytes.join(' ')} 0`);
                 this.parseToken(); // consume string
               } else if (initializer === '{') {
-                const values: number[] = [];
-                const count = this.parseInitializerList(values);
+                let values: number[] = [];
+                let count = 0;
+                if (type === 'char' && pointerDepth === 0) {
+                  const result = this.parseCharArrayInitializer(dimensions);
+                  values = result.bytes;
+                  count = result.topLevelCount;
+                } else {
+                  const parsedValues: number[] = [];
+                  count = this.parseInitializerList(parsedValues);
+                  values = parsedValues;
+                }
                 if (size === 0 && isImplicitFirstDim) {
                   const innerSize = dimensions.length > 1 ? dimensions.slice(1).reduce((a, b) => a * b, 1) : 1;
                   size = count * innerSize;
@@ -748,8 +852,17 @@ export class LavaXCompiler {
             continue;
           } else if (initializerToken === '{') {
             // Local array initialization with list
-            const values: number[] = [];
-            const count = this.parseInitializerList(values);
+            let values: number[] = [];
+            let count = 0;
+            if (token === 'char' && pointerDepth === 0) {
+              const result = this.parseCharArrayInitializer(dimensions);
+              values = result.bytes;
+              count = result.topLevelCount;
+            } else {
+              const parsedValues: number[] = [];
+              count = this.parseInitializerList(parsedValues);
+              values = parsedValues;
+            }
             if (size === 0 && isImplicitFirstDim) {
               const innerSize = dimensions.length > 1 ? dimensions.slice(1).reduce((a, b) => a * b, 1) : 1;
               size = count * innerSize;

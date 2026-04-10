@@ -1,4 +1,5 @@
 import { LavaXCompiler } from '../../src/compiler';
+import iconv from 'iconv-lite';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -47,9 +48,33 @@ function verifyIntArrayStride() {
   assert(strideCount >= 2, `expected int array accesses to use 2-byte stride, got ${strideCount}`);
 }
 
+function verifyGlobalChineseMenuStrings() {
+  const asm = compile(`
+    char g_saMainManualItems[3][11] = {
+      "交谈　　  ", "查看四周  ", "使用物品  "
+    };
+
+    void main() {}
+  `);
+
+  const expectedBytes = [
+    ...Array.from(iconv.encode('交谈　　  ', 'gbk')),
+    0,
+    ...Array.from(iconv.encode('查看四周  ', 'gbk')),
+    0,
+    ...Array.from(iconv.encode('使用物品  ', 'gbk')),
+    0,
+  ];
+  const expectedInit = `INIT 8192 33 ${expectedBytes.join(' ')}`;
+
+  assert(asm.includes(expectedInit), 'global Chinese menu strings were not expanded into GBK bytes correctly');
+  assert(!asm.includes('INIT 8192 3 0 0 0'), 'global Chinese menu strings regressed to zero-initialization');
+}
+
 function main() {
   verifyLocalCharArrayStringInit();
   verifyIntArrayStride();
+  verifyGlobalChineseMenuStrings();
   console.log('compiler regression checks passed');
 }
 
