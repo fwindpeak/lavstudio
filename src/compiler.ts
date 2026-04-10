@@ -42,6 +42,15 @@ interface StructDef {
 }
 
 export class LavaXCompiler {
+  // Ensure source is interpreted as GBK: encode -> decode via GBK to coerce codepoints
+  private normalizeSourceToGBK(source: string): string {
+    try {
+      const buf = iconv.encode(source, 'gbk');
+      return iconv.decode(buf, 'gbk');
+    } catch (e) {
+      return source;
+    }
+  }
   private src: string = "";
   private pos: number = 0;
   private asm: string[] = [];
@@ -247,8 +256,26 @@ export class LavaXCompiler {
     return this.src.substring(0, pos).split('\n').length;
   }
 
-  compile(source: string): string {
-    this.src = source;
+  compile(source: string | Buffer): string {
+    // Accept either a string or a Buffer. If Buffer, detect encoding.
+    if (Buffer.isBuffer(source)) {
+      const buf: Buffer = source as Buffer;
+      try {
+        const tryUtf8 = buf.toString('utf8');
+        if (Buffer.from(tryUtf8, 'utf8').equals(buf)) {
+          // It's valid UTF-8
+          this.src = this.normalizeSourceToGBK(tryUtf8);
+        } else {
+          // Treat as GBK
+          this.src = iconv.decode(buf, 'gbk');
+        }
+      } catch (e) {
+        this.src = iconv.decode(buf, 'gbk');
+      }
+    } else {
+      // source is string
+      this.src = this.normalizeSourceToGBK(source as string);
+    }
     this.pos = 0;
     this.asm = [];
     this.labelCount = 0;
