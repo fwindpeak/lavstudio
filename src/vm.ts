@@ -118,8 +118,10 @@ export class LavaXVM {
       let baseFlags = isGlobal ? 0 : HANDLE_BASE_EBP;
       const offset = this.fdView.getUint16(this.pc, true);
       this.pc += 2;
-      const idx = this.pop(); // Crucial Fix: LEA array requires popped index
-      const addr = (offset + idx) & 0xFFFF;
+      // LEA pushes a handle encoding the variable's address and type.
+      // The compiler never pushes an index before LEA; the offset in the
+      // instruction operand is already the final variable offset.
+      const addr = offset & 0xFFFF;
       let type = 0;
       if (op === Op.LEA_G_B || op === Op.LEA_L_B) type = HANDLE_TYPE_BYTE;
       else if (op === Op.LEA_G_W || op === Op.LEA_L_W) type = HANDLE_TYPE_WORD;

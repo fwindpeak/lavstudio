@@ -158,10 +158,52 @@ export class LavaXDecompiler {
 
         if (op === 'FUNC' || op === 'RET' || op === 'EXIT' || op === 'DBG' || op === 'FUNCID' || op === 'VOID' || op === 'PASS') {
           if (op === 'RET') {
+              // Flush any leftover call expressions that were never used
+              while (stack.length > 1) {
+                  const v = resolveAddrLiteral(stack.shift()!);
+                  if (v && (v.includes('(') || v.includes('='))) bSrc += `${indent}${v};\n`;
+              }
               const rv = stack.length ? resolveAddrLiteral(stack.pop()) : "";
               bSrc += `${indent}return${rv ? ` ${rv}` : ""};\n`;
           }
           if (op === 'EXIT' && current?.name !== 'main') bSrc += `${indent}exit(0);\n`;
+          continue;
+        }
+
+        // Handle user-defined function calls
+        if (op === 'CALL') {
+          const funcLabel = args[0];
+          const funcAddr = this.labelToAddr.get(funcLabel);
+          const funcName = funcAddr !== undefined ? (addrToName.get(funcAddr) || funcLabel) : funcLabel;
+          // Find param count from the called function's FUNC instruction
+          let paramCount = 0;
+          if (funcAddr !== undefined) {
+            const funcStartLine = this.addrToLine.get(funcAddr);
+            if (funcStartLine !== undefined) {
+              for (let k = funcStartLine; k <= Math.min(funcStartLine + 3, lines.length - 1); k++) {
+                const lt = lines[k].trim();
+                if (lt.startsWith('FUNC')) { paramCount = parseInt(lt.split(/\s+/)[2]) || 0; break; }
+              }
+            }
+          }
+          const callArgs: string[] = [];
+          for (let k = 0; k < paramCount; k++) callArgs.unshift(resolveAddrLiteral(stack.pop() || '0'));
+          const callExpr = `${funcName}(${callArgs.join(', ')})`;
+          // Determine if the return value is consumed by the immediately following instruction
+          const nextParts = i + 1 <= end ? lines[i + 1].trim().split(/\s+/) : [];
+          const nextOp2 = nextParts[0] || '';
+          const valueConsumers = new Set(['ADD','SUB','MUL','DIV','MOD','AND','OR','XOR','SHL','SHR','EQ','NEQ','LT','GT','LE','GE','L_AND','L_OR','STORE','SWAP','NEG','NOT','L_NOT','INC_PRE','DEC_PRE','INC_POS','DEC_POS','DUP']);
+          if (nextOp2 === 'POP') {
+            // Non-void called as a statement, return value discarded
+            bSrc += `${indent}${callExpr};\n`;
+            i++; // skip POP
+          } else if (valueConsumers.has(nextOp2) || nextOp2.startsWith('LEA_') || nextOp2.startsWith('LD_IND')) {
+            // Return value used in an expression
+            stack.push(callExpr);
+          } else {
+            // Void function call (no return value consumed)
+            bSrc += `${indent}${callExpr};\n`;
+          }
           continue;
         }
         // Handle POP+JZ/JNZ fusion: skip POP if next is JZ/JNZ (combined pattern)
@@ -237,12 +279,40 @@ export class LavaXDecompiler {
       case 'LD_L_B': case 'LD_L_W': case 'LD_L_D': stack.push(getLocal(parseInt(args[0]))); break;
       case 'LEA_G_B': case 'LEA_G_W': case 'LEA_G_D': stack.push(`g_${parseInt(args[0]).toString(16)}`); break;
       case 'LEA_L_B': case 'LEA_L_W': case 'LEA_L_D': stack.push(getAddr(parseInt(args[0]))); break;
-      case 'STORE': { const val = resolveAddr(stack.pop()), addr = resolveAddr(stack.pop()); stack.push(`(${deref(addr)} = ${val})`); break; }
+      case 'STORE': {
+        const val = resolveAddr(stack.pop());
+        const rawAddrExpr = resolveAddr(stack.pop());
+        // Try to evaluate address as a numeric handle encoding (offset | EBP_flag | type_bits)
+        // e.g. "((9 | 8388608) | 131072)" → resolve as local var at offset 9
+        const lhs = (() => {
+          const cleaned = rawAddrExpr.replace(/[()]/g, '').trim();
+          if (/^[\d\s|]+$/.test(cleaned)) {
+            const parts = cleaned.split('|');
+            let result = 0, valid = true;
+            for (const p of parts) { const n = parseInt(p.trim()); if (isNaN(n)) { valid = false; break; } result |= n; }
+            if (valid) {
+              const resolved = resolveAddr(String(result));
+              if (resolved !== String(result)) return deref(resolved);
+            }
+          }
+          // Strip type-constant OR: "(&l_5 | 131072)" → "&l_5"
+          let stripped = rawAddrExpr
+            .replace(/^\((.+?)\s*\|\s*(?:65536|131072|262144)\s*\)$/, '$1')
+            .replace(/^\((.+?)\s*\|\s*8388608\s*\)$/, '$1').trim();
+          return deref(stripped);
+        })();
+        if (iSP) {
+          emit(`${lhs} = ${val}`);
+        } else {
+          stack.push(`(${lhs} = ${val})`);
+        }
+        break;
+      }
       case 'POP': if (stack.length) { const v = resolveAddr(stack.pop())!; if (v.includes('(') || v.includes('=') || v.includes('++') || v.includes('--')) emit(v); } break;
-      case 'ADD': case 'SUB': case 'MUL': case 'DIV': case 'MOD': case 'AND': case 'OR': case 'XOR': case 'SHL': case 'SHR': case 'EQ': case 'NEQ': case 'LT': case 'GT': case 'LE': case 'GE': case 'L_AND': case 'L_OR': { const b = resolveAddr(stack.pop()) || "0", a = resolveAddr(stack.pop()) || "0"; const ops:any = {ADD:'+',SUB:'-',MUL:'*',DIV:'/',MOD:'%',AND:'&',OR:'|',XOR:'^',SHL:'<<',SHR:'>>',EQ:'==',NEQ:'!=',LT:'<',GT:'>',LE:'<=',GE:'>=',L_AND:'&&',L_OR:'||'}; stack.push(`(${a} ${ops[op]} ${b})`); break; }
-      case 'NEG': case 'NOT': case 'L_NOT': { const ops:any = {NEG:'-',NOT:'~',L_NOT:'!'}; stack.push(`(${ops[op]}${resolveAddr(stack.pop())})`); break; }
-      case 'INC_PRE': case 'DEC_PRE': { const ops:any = {INC_PRE:'++',DEC_PRE:'--'}; stack.push(`${ops[op]}${deref(resolveAddr(stack.pop()))}`); break; }
-      case 'INC_POS': case 'DEC_POS': { const ops:any = {INC_POS:'++',DEC_POS:'--'}; stack.push(`((${deref(resolveAddr(stack.pop()))})${ops[op]})`); break; }
+      case 'ADD': case 'SUB': case 'MUL': case 'DIV': case 'MOD': case 'AND': case 'OR': case 'XOR': case 'SHL': case 'SHR': case 'EQ': case 'NEQ': case 'LT': case 'GT': case 'LE': case 'GE': case 'L_AND': case 'L_OR': { const b = stack.pop() || "0", a = stack.pop() || "0"; const ops:any = {ADD:'+',SUB:'-',MUL:'*',DIV:'/',MOD:'%',AND:'&',OR:'|',XOR:'^',SHL:'<<',SHR:'>>',EQ:'==',NEQ:'!=',LT:'<',GT:'>',LE:'<=',GE:'>=',L_AND:'&&',L_OR:'||'}; stack.push(`(${a} ${ops[op]} ${b})`); break; }
+      case 'NEG': case 'NOT': case 'L_NOT': { const ops:any = {NEG:'-',NOT:'~',L_NOT:'!'}; stack.push(`(${ops[op]}${stack.pop()})`); break; }
+      case 'INC_PRE': case 'DEC_PRE': { const ops:any = {INC_PRE:'++',DEC_PRE:'--'}; stack.push(`${ops[op]}${deref(stack.pop())}`); break; }
+      case 'INC_POS': case 'DEC_POS': { const ops:any = {INC_POS:'++',DEC_POS:'--'}; stack.push(`((${deref(stack.pop())})${ops[op]})`); break; }
       case 'LD_IND': stack.push(`*(${resolveAddr(stack.pop())})`); break;
       case 'LD_IND_W': stack.push(`*(int*)(${resolveAddr(stack.pop())})`); break;
       case 'LD_IND_D': stack.push(`*(long*)(${resolveAddr(stack.pop())})`); break;

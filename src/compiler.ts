@@ -113,7 +113,10 @@ export class LavaXCompiler {
   }
 
   private getVariableElementSize(variable: Variable | StructMember): number {
-    return variable.pointerDepth > 0 ? 4 : this.getTypeSize(variable.type);
+    // For pointer-to-pointer (int**), subscript element size is pointer size (4 bytes).
+    // For a plain pointer (int*), subscript element size is the base type size.
+    if (variable.pointerDepth > 1) return 4;
+    return this.getTypeSize(variable.type);
   }
 
   private emitBytewiseLocalInit(offset: number, values: number[]) {
@@ -1324,7 +1327,15 @@ export class LavaXCompiler {
             this.pushLiteral(elementSize);
             this.asm.push('MUL');
           }
-          if (isLocal) {
+          const handleType = variable.pointerDepth > 1 ? '0x40000'
+            : (variable.type === 'char' ? '0x10000' : (variable.type === 'int' ? '0x20000' : '0x40000'));
+          if (variable.pointerDepth > 0 && variable.size === 1) {
+            // Pointer subscript assignment: load pointer value and add byte offset
+            const ptrLoadOp = isLocal ? 'LD_L_D' : 'LD_G_D';
+            this.asm.push(`${ptrLoadOp} ${variable.offset}`);
+            this.asm.push('SWAP');
+            this.asm.push('ADD');
+          } else if (isLocal) {
             this.pushLiteral(variable.offset);
             this.asm.push('ADD');
             // Manually build handle: offset | HANDLE_BASE_EBP | handle_type
@@ -1335,7 +1346,6 @@ export class LavaXCompiler {
             this.pushLiteral(variable.offset);
             this.asm.push('ADD');
           }
-          const handleType = variable.type === 'char' ? '0x10000' : (variable.type === 'int' ? '0x20000' : '0x40000');
           this.asm.push(`PUSH_D ${handleType}`);
           this.asm.push('OR');
           if (isCompound) {
@@ -1598,6 +1608,10 @@ export class LavaXCompiler {
       const isLocal = this.locals.has(token);
       if (variable) {
         this.parseToken();
+        // Determine the type bits for the element the pointer points to
+        const ptrElemDepth = (variable as any).pointerDepth > 0 ? 1 : 0;
+        const ptrHandleType = ptrElemDepth > 0 ? '0x40000'
+          : (variable.type === 'char' ? '0x10000' : (variable.type === 'int' ? '0x20000' : '0x40000'));
         if (this.match('[')) {
           this.parseExpression();
           this.expect(']');
@@ -1612,15 +1626,20 @@ export class LavaXCompiler {
             this.asm.push(`PUSH_W ${variable.offset}`);
             this.asm.push('ADD');
           }
+          // Add type bits so LD_IND knows how many bytes to read/write
+          this.asm.push(`PUSH_D ${ptrHandleType}`);
+          this.asm.push('OR');
         } else {
-          // For &variable, we need the raw offset, not the LEA-encoded address
-          // Use PUSH_W/PUSH_D to push raw offset, then add HANDLE_BASE_EBP for local vars
-          const op = isLocal ? 'PUSH_W' : 'PUSH_W';
-          this.asm.push(`${op} ${variable.offset}`);
+          // For &variable, push the offset with EBP flag (for local) plus type bits
+          // so that pointer dereference (LD_IND) reads/writes the correct width.
+          this.asm.push(`PUSH_W ${variable.offset}`);
           if (isLocal) {
             this.asm.push('PUSH_D 0x800000');
             this.asm.push('OR');
           }
+          // Add type bits
+          this.asm.push(`PUSH_D ${ptrHandleType}`);
+          this.asm.push('OR');
         }
         return true;
       } else {
@@ -1770,7 +1789,19 @@ export class LavaXCompiler {
           this.pushLiteral(elementSize);
           this.asm.push('MUL');
         }
-        if (isLocal) {
+        // For pointer variables (e.g., int* arr passed as parameter), the variable stores
+        // an absolute address to the array data — load the pointer and use LD_IND.
+        if (variable.pointerDepth > 0 && variable.size === 1) {
+          const ptrLoadOp = isLocal ? 'LD_L_D' : 'LD_G_D';
+          this.asm.push(`${ptrLoadOp} ${variable.offset}`);  // load pointer (absolute addr)
+          this.asm.push('SWAP'); // swap so byte_offset is on top
+          this.asm.push('ADD');  // absolute element address
+          const typeFlag = variable.pointerDepth > 1 ? '0x40000'
+            : (variable.type === 'char' ? '0x10000' : (variable.type === 'int' ? '0x20000' : '0x40000'));
+          this.asm.push(`PUSH_D ${typeFlag}`);
+          this.asm.push('OR');
+          this.asm.push('LD_IND');
+        } else if (isLocal) {
           this.pushLiteral(variable.offset);
           this.asm.push('ADD');
           const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
@@ -1782,9 +1813,14 @@ export class LavaXCompiler {
           this.asm.push(`LD_G_O_${opSuffix} 0`);
         }
       } else if (variable.size > 1) {
-        const opPrefix = isLocal ? 'LEA_L' : 'LEA_G';
-        const opSuffix = variable.type === 'char' ? 'B' : (variable.type === 'int' ? 'W' : 'D');
-        this.asm.push(`${opPrefix}_${opSuffix} ${variable.offset}`);
+        // Local array referenced without subscript: push absolute address so it can be
+        // passed to functions that expect a pointer (e.g., sum(arr, n)).
+        if (isLocal) {
+          this.asm.push(`LEA_ABS ${variable.offset}`);
+        } else {
+          // Global arrays: push the global offset directly (it's already absolute)
+          this.pushLiteral(variable.offset);
+        }
       } else {
         const opPrefix = isLocal ? 'LD_L' : 'LD_G';
         // Pointer variables store a full 24-bit handle, must use DWORD (4-byte) load
